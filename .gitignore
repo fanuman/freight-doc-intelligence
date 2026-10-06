@@ -12,3 +12,4 @@ node_modules/
 *.tfstate
 *.tfstate.backup
 .pytest_cache/
+*.egg-info/
