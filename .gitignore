@@ -1,5 +1,6 @@
 .env
 .env.*
+!.env.example
 __pycache__/
 *.pyc
 .venv/
@@ -10,3 +11,4 @@ node_modules/
 .terraform/
 *.tfstate
 *.tfstate.backup
+.pytest_cache/
