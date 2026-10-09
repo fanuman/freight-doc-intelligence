@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     app_db_password: str
     db_host: str = "localhost"
     db_port: int = 5433
+    jwt_secret: str  # signs login tokens; generate with: openssl rand -hex 32
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
 
     @property
     def owner_url(self) -> URL:

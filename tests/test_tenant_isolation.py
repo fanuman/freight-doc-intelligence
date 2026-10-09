@@ -160,3 +160,28 @@ def test_cannot_delete_another_tenants_document(engines, two_tenants):
             {"id": two_tenants["doc_b"]},
         ).scalar_one()
     assert still_there == 1
+
+
+def test_tenant_can_only_be_created_with_its_own_id(engines):
+    """Registration inserts a tenant as the app role. The policy must allow
+    only the tenant whose id matches the transaction's tenant context."""
+    owner, app = engines
+    own_id, other_id = uuid.uuid4(), uuid.uuid4()
+    try:
+        with tenant_conn(app, own_id) as conn:
+            conn.execute(
+                text("INSERT INTO tenants (id, name) VALUES (:id, 'self-registered')"),
+                {"id": own_id},
+            )
+        with pytest.raises(DBAPIError, match="row-level security"):
+            with tenant_conn(app, own_id) as conn:
+                conn.execute(
+                    text("INSERT INTO tenants (id, name) VALUES (:id, 'spoofed')"),
+                    {"id": other_id},
+                )
+    finally:
+        with owner.begin() as conn:
+            conn.execute(
+                text("DELETE FROM tenants WHERE id IN (:a, :b)"),
+                {"a": own_id, "b": other_id},
+            )
