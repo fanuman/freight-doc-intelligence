@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
+    # Optional: only the document pipeline needs these, so the API, migrations
+    # and most tests still run without them.
+    openai_api_key: str | None = None
+    extraction_model: str = "gpt-4o-mini"
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "freight-lens"
+
     @property
     def owner_url(self) -> URL:
         """Used only by migrations and test seeding. Bypasses RLS."""

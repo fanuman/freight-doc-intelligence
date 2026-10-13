@@ -1,0 +1,127 @@
+"""The steps of the pipeline as plain functions, plus the routing decisions.
+
+A LangGraph node is just "a function that takes the state and returns the parts
+of the state it wants to change". Writing them as ordinary functions (no
+LangGraph import here) means we can test every step, and every routing choice,
+without LangGraph and without an LLM.
+"""
+from typing import TypedDict
+
+from freight_intel.pipeline import prompts
+from freight_intel.pipeline.llm import LLM, ExtractionFailed
+from freight_intel.pipeline.parsing import ParsedDocument, parse_document
+from freight_intel.pipeline.schemas import DocTypeResult, InvoiceExtraction, QuoteExtraction
+from freight_intel.pipeline.validation import Issue, TypedDocument, validate
+
+MAX_CHARS = 30_000  # a hard cap, so a huge or hostile file can't run up the bill
+
+
+class DocState(TypedDict, total=False):
+    """Everything the graph knows about one document. Each node adds to it.
+
+    status ends as one of: ok | needs_review | failed | unsupported
+    """
+
+    file_path: str
+    parsed: ParsedDocument
+    doc_type: str
+    extraction: QuoteExtraction | InvoiceExtraction
+    typed: TypedDocument
+    issues: list[Issue]
+    status: str
+    error: str
+
+
+def _text(state: DocState) -> str:
+    return state["parsed"].text[:MAX_CHARS]
+
+
+# --- nodes ----------------------------------------------------------------------
+
+def parse_node(state: DocState) -> dict:
+    try:
+        parsed = parse_document(state["file_path"])
+    except Exception as exc:  # corrupt file, unsupported type, ...
+        return {"status": "failed", "error": f"could not read file: {exc}"}
+    if not parsed.text:
+        return {"parsed": parsed, "status": "failed", "error": "; ".join(parsed.warnings) or "empty document"}
+    return {"parsed": parsed}
+
+
+def make_classify_node(llm: LLM):
+    def classify_node(state: DocState) -> dict:
+        try:
+            result = llm.extract(DocTypeResult, prompts.CLASSIFY_SYSTEM, prompts.build_user_message(_text(state)))
+        except ExtractionFailed as exc:
+            return {"status": "failed", "error": str(exc)}
+        return {"doc_type": result.doc_type}
+
+    return classify_node
+
+
+def make_extract_node(llm: LLM, schema, system: str):
+    def extract_node(state: DocState) -> dict:
+        try:
+            extraction = llm.extract(schema, system, prompts.build_user_message(_text(state)))
+        except ExtractionFailed as exc:
+            return {"status": "failed", "error": str(exc)}
+        return {"extraction": extraction}
+
+    return extract_node
+
+
+def unsupported_node(state: DocState) -> dict:
+    return {"status": "unsupported", "error": f"document type {state.get('doc_type')!r} is not supported yet"}
+
+
+def validate_node(state: DocState) -> dict:
+    result = validate(state["doc_type"], state["extraction"])
+    return {
+        "typed": result.typed,
+        "issues": result.issues,
+        "status": "ok" if result.ok else "needs_review",
+    }
+
+
+# --- routing: which node runs next -----------------------------------------------------
+
+def route_after_parse(state: DocState) -> str:
+    return "end" if state.get("status") == "failed" else "classify"
+
+
+def route_after_classify(state: DocState) -> str:
+    if state.get("status") == "failed":
+        return "end"
+    return {"quote": "extract_quote", "invoice": "extract_invoice"}.get(state.get("doc_type"), "unsupported")
+
+
+def route_after_extract(state: DocState) -> str:
+    return "end" if state.get("status") == "failed" else "validate"
+
+
+def run_sequentially(llm: LLM, path: str) -> DocState:
+    """The same nodes and the same routers as the graph, called one after another.
+
+    For tests and debugging only. The real pipeline is the LangGraph graph in
+    graph.py; a test (test_graph.py) checks that both give the same answers.
+    """
+    state: DocState = {"file_path": str(path)}
+    state.update(parse_node(state))
+    if route_after_parse(state) == "end":
+        return state
+    state.update(make_classify_node(llm)(state))
+    nxt = route_after_classify(state)
+    if nxt == "end":
+        return state
+    if nxt == "unsupported":
+        state.update(unsupported_node(state))
+        return state
+    if nxt == "extract_quote":
+        extract = make_extract_node(llm, QuoteExtraction, prompts.EXTRACT_QUOTE_SYSTEM)
+    else:
+        extract = make_extract_node(llm, InvoiceExtraction, prompts.EXTRACT_INVOICE_SYSTEM)
+    state.update(extract(state))
+    if route_after_extract(state) == "end":
+        return state
+    state.update(validate_node(state))
+    return state

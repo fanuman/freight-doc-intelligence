@@ -16,3 +16,6 @@ node_modules/
 
 # generated test data (reproducible: python -m freight_intel.synth)
 data/synthetic/
+
+# evaluation run outputs (each run is a timestamped JSON file)
+eval_results/
