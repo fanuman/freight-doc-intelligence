@@ -1,7 +1,9 @@
 """Wires the nodes into a LangGraph graph.
 
-  START -> parse -> classify -+-> extract_quote   -+-> validate -> END
-                              +-> extract_invoice -+
+  START -> parse -> classify -+-> extract_quote   -+-> validate -+-> END
+                              +-> extract_invoice -+      ^       |
+                              |                    ^      |       | TOTAL_MISMATCH and retries left
+                              |                    +------+-------+  (hint goes back to the extractor)
                               +-> unsupported -> END      (any step can also jump to END on failure)
 
 The two `add_conditional_edges` calls are the router pattern from Day 31, now
@@ -36,7 +38,12 @@ def build_graph(llm: LLM):
     for name in ("extract_quote", "extract_invoice"):
         g.add_conditional_edges(name, nodes.route_after_extract, {"validate": "validate", "end": END})
     g.add_edge("unsupported", END)
-    g.add_edge("validate", END)
+    # The loop: after validate, either finish or go back to the same extractor with a hint.
+    g.add_conditional_edges(
+        "validate",
+        nodes.route_after_validate,
+        {"extract_quote": "extract_quote", "extract_invoice": "extract_invoice", "end": END},
+    )
 
     return g.compile()
 

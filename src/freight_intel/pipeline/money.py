@@ -53,6 +53,14 @@ def parse_money(text: str | None) -> int | None:
     return -minor if negative else minor
 
 
+def format_minor(minor: int) -> str:
+    """The inverse of parse_money: 504000 -> '5,040.00'.
+
+    Assumes 2 decimal places, like parse_money (a few currencies, e.g. JPY or KWD, differ).
+    """
+    return f"{minor / 100:,.2f}"
+
+
 def parse_date(text: str | None) -> date | None:
     """'05.10.2026' | '10 Aug 2026' | 'August 10, 2026' | '2026-08-10' -> date."""
     if not text:

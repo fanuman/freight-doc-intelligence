@@ -8,11 +8,13 @@ without LangGraph and without an LLM.
 from typing import TypedDict
 
 from freight_intel.pipeline import prompts
+from freight_intel.pipeline.money import format_minor
 from freight_intel.pipeline.llm import LLM, ExtractionFailed
 from freight_intel.pipeline.parsing import ParsedDocument, parse_document
 from freight_intel.pipeline.schemas import DocTypeResult, InvoiceExtraction, QuoteExtraction
 from freight_intel.pipeline.validation import Issue, TypedDocument, validate
 
+MAX_RETRIES = 2  # first read + at most 2 re-reads = 3 reads in total
 MAX_CHARS = 30_000  # a hard cap, so a huge or hostile file can't run up the bill
 
 
@@ -30,6 +32,8 @@ class DocState(TypedDict, total=False):
     issues: list[Issue]
     status: str
     error: str
+    attempts: int  # how many times the extractor has run on this document
+    hint: str  # what the last validation found wrong, for the next attempt
 
 
 def _text(state: DocState) -> str:
@@ -62,10 +66,10 @@ def make_classify_node(llm: LLM):
 def make_extract_node(llm: LLM, schema, system: str):
     def extract_node(state: DocState) -> dict:
         try:
-            extraction = llm.extract(schema, system, prompts.build_user_message(_text(state)))
+            extraction = llm.extract(schema, system, prompts.build_user_message(_text(state), state.get("hint", "")))
         except ExtractionFailed as exc:
             return {"status": "failed", "error": str(exc)}
-        return {"extraction": extraction}
+        return {"extraction": extraction, "attempts": state.get("attempts", 0) + 1}
 
     return extract_node
 
@@ -74,12 +78,23 @@ def unsupported_node(state: DocState) -> dict:
     return {"status": "unsupported", "error": f"document type {state.get('doc_type')!r} is not supported yet"}
 
 
+def build_hint(typed: TypedDocument, issues: list[Issue]) -> str:
+    """Facts for the next attempt, never the answer. Empty unless the lines don't add up to the total."""
+    if not any(i.code == "TOTAL_MISMATCH" for i in issues):
+        return ""
+    line_sum = sum(c.amount_minor for c in typed.charges)  # safe: TOTAL_MISMATCH only exists if every amount parsed
+    return (f"the charge amounts you returned add up to {format_minor(line_sum)}, but the printed total is "
+            f"{format_minor(typed.total_minor)}. Re-read every amount in the charge table, digit by digit, "
+            f"and extract again.")
+
+
 def validate_node(state: DocState) -> dict:
     result = validate(state["doc_type"], state["extraction"])
     return {
         "typed": result.typed,
         "issues": result.issues,
         "status": "ok" if result.ok else "needs_review",
+        "hint": build_hint(result.typed, result.issues),
     }
 
 
@@ -97,6 +112,13 @@ def route_after_classify(state: DocState) -> str:
 
 def route_after_extract(state: DocState) -> str:
     return "end" if state.get("status") == "failed" else "validate"
+
+
+def route_after_validate(state: DocState) -> str:
+    """The loop: go back to the same extractor while there is a hint and retries left."""
+    if state.get("hint") and state["attempts"] <= MAX_RETRIES:
+        return f"extract_{state['doc_type']}"  # extract_quote or extract_invoice
+    return "end"
 
 
 def run_sequentially(llm: LLM, path: str) -> DocState:
@@ -120,8 +142,10 @@ def run_sequentially(llm: LLM, path: str) -> DocState:
         extract = make_extract_node(llm, QuoteExtraction, prompts.EXTRACT_QUOTE_SYSTEM)
     else:
         extract = make_extract_node(llm, InvoiceExtraction, prompts.EXTRACT_INVOICE_SYSTEM)
-    state.update(extract(state))
-    if route_after_extract(state) == "end":
-        return state
-    state.update(validate_node(state))
-    return state
+    while True:
+        state.update(extract(state))
+        if route_after_extract(state) == "end":
+            return state
+        state.update(validate_node(state))
+        if route_after_validate(state) == "end":
+            return state

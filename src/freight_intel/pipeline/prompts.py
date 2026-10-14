@@ -39,8 +39,12 @@ EXTRACT_QUOTE_SYSTEM = _RULES + "\n\nTask: extract the fields of this freight QU
 EXTRACT_INVOICE_SYSTEM = _RULES + "\n\nTask: extract the fields of this freight INVOICE."
 
 
-def build_user_message(document_text: str) -> str:
+def build_user_message(document_text: str, hint: str = "") -> str:
     """Fence the document. A closing tag inside the text is defused so a hostile
     document can't 'end' the data section and start writing instructions."""
     safe = document_text.replace("</document>", "<\\/document>").replace("<document>", "<\\document>")
-    return f"<document>\n{safe}\n</document>"
+    message = f"<document>\n{safe}\n</document>"
+    if hint:
+        # Outside the fence on purpose: our code wrote this, the document did not.
+        message += f"\n\nYour previous reading failed an automatic check: {hint}"
+    return message

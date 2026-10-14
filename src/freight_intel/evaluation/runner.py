@@ -70,6 +70,9 @@ def format_report(summary: dict, usage: dict | None = None, scores: list[DocScor
     ]
     for message, count in summary.get("errors", {}).items():
         lines.append(f"ERROR x{count}: {message}")
+    r = summary["repair_loop"]
+    lines.append(f"Repair loop: retried {r['retried']} documents, fixed {r['fixed']}, "
+                 f"{r['extra_extractions']} extra extractions")
     wrong = [s for s in (scores or []) if s.missed or s.extra]
     if wrong:
         lines.append(f"Charge mismatches ({len(wrong)} documents; label, amount in cents) - first 8:")

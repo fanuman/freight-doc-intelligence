@@ -95,3 +95,30 @@ def test_a_basis_suffix_on_the_label_is_a_label_error_not_an_amount_error(data_d
     assert s["charges"]["f1"] == 0.0  # strict: every label is wrong
     assert s["charge_amount_recall"] == 1.0  # ...but every amount is right
     assert s["field_accuracy"] == 1.0
+
+
+def _misread_every_invoice(result, case, kind):
+    """A model that reads the first charge of every invoice wrong ('0.01')."""
+    if kind == "invoice":
+        result.charges[0].amount_text = "0.01"
+    return result
+
+
+def test_repair_loop_fixes_misreads_but_not_documents_that_are_really_wrong(data_dir):
+    llm = OracleLLM(CASES, corrupt=_misread_every_invoice, fix_when_hinted=True)
+    _, s = run_eval(data_dir, llm)
+    # every misread was fixed by the retry...
+    assert s["validator"]["false_total_mismatch"] == "0/40"
+    assert s["charges"]["f1"] == 1.0
+    # ...but the 5 invoices whose printed total is really wrong must still reach a human
+    assert s["validator"]["arithmetic_errors_flagged"] == "5/5"
+    assert s["status"] == {"ok": 85, "needs_review": 5}
+    assert s["repair_loop"] == {"retried": 45, "fixed": 40, "extra_extractions": 40 + 5 * 2}
+
+
+def test_without_the_hint_a_misreading_model_stays_wrong_after_all_retries(data_dir):
+    llm = OracleLLM(CASES, corrupt=_misread_every_invoice, fix_when_hinted=False)
+    _, s = run_eval(data_dir, llm)
+    assert s["validator"]["false_total_mismatch"] == "40/40"
+    assert s["repair_loop"]["fixed"] == 0
+    assert s["repair_loop"]["extra_extractions"] == 45 * 2  # each retried exactly twice, then given up

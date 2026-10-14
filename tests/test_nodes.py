@@ -45,6 +45,40 @@ def test_arithmetic_error_invoice_is_sent_to_review_with_total_mismatch(files):
     assert [i.code for i in state["issues"]] == ["TOTAL_MISMATCH"]
 
 
+def test_really_wrong_invoice_is_read_three_times_then_goes_to_review(files):
+    case = next(c for c in CASES if c.error_kind == ARITHMETIC_ERROR)
+    llm = OracleLLM(CASES)
+    state = run_linear(llm, files / "cases" / case.case_id / f"invoice.{case.invoice_format}")
+    assert state["attempts"] == nodes.MAX_RETRIES + 1 == 3
+    assert llm.calls == 1 + 3  # one classification + three extractions
+    assert state["status"] == "needs_review"
+
+
+def test_clean_invoice_is_read_once(files):
+    case = next(c for c in CASES if c.error_kind == "CLEAN")
+    llm = OracleLLM(CASES)
+    state = run_linear(llm, files / "cases" / case.case_id / f"invoice.{case.invoice_format}")
+    assert state["attempts"] == 1 and llm.calls == 2
+
+
+def test_hint_states_facts_and_never_the_right_answer():
+    from freight_intel.pipeline.validation import Issue, TypedCharge, TypedDocument
+
+    typed = TypedDocument("invoice", "INV-1", None, None, None, "USD",
+                          [TypedCharge("Ocean Freight", 19500), TypedCharge("BAF", 35500)], 504000)
+    hint = nodes.build_hint(typed, [Issue("TOTAL_MISMATCH", "x")])
+    assert "550.00" in hint and "5,040.00" in hint
+    assert "4,195" not in hint and "4195" not in hint  # the correct amount is never revealed
+    assert nodes.build_hint(typed, []) == ""
+
+
+def test_router_stops_after_the_retry_limit():
+    state = {"doc_type": "invoice", "hint": "x", "attempts": nodes.MAX_RETRIES}
+    assert nodes.route_after_validate(state) == "extract_invoice"
+    assert nodes.route_after_validate({**state, "attempts": nodes.MAX_RETRIES + 1}) == "end"
+    assert nodes.route_after_validate({**state, "hint": ""}) == "end"
+
+
 def test_unreadable_file_fails_without_calling_the_llm(tmp_path):
     bad = tmp_path / "broken.pdf"
     bad.write_bytes(b"not a pdf")

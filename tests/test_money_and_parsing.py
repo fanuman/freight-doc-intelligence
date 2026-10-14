@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from freight_intel.pipeline.money import normalize_currency, parse_date, parse_money
+from freight_intel.pipeline.money import format_minor, normalize_currency, parse_date, parse_money
 from freight_intel.pipeline.parsing import parse_document
 
 
@@ -147,3 +147,8 @@ def test_pdf_without_text_warns(tmp_path):
     c.save()
     parsed = parse_document(p)
     assert parsed.text == "" and parsed.warnings
+
+
+@pytest.mark.parametrize("minor", [0, 5, 100, 19501, 419500, 504000, 123456789])
+def test_format_minor_round_trips_through_parse_money(minor):
+    assert parse_money(format_minor(minor)) == minor

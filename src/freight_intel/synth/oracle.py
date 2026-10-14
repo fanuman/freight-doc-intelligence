@@ -45,9 +45,11 @@ class OracleLLM:
     """Implements the same `extract` method as OpenAILLM, but cheats by looking
     the document up in the known dataset (it finds which case's number is in the text)."""
 
-    def __init__(self, cases: list[Case], corrupt: Callable | None = None):
+    def __init__(self, cases: list[Case], corrupt: Callable | None = None, fix_when_hinted: bool = False):
         self.cases = cases
         self.corrupt = corrupt  # optional: damage the answer to simulate a bad model
+        # simulate a model that misreads once but reads correctly when told a check failed
+        self.fix_when_hinted = fix_when_hinted
         self.calls = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
@@ -68,4 +70,7 @@ class OracleLLM:
         if schema is DocTypeResult:
             return DocTypeResult(doc_type=kind)
         result = perfect_extraction(case, kind)
-        return self.corrupt(result, case, kind) if self.corrupt else result
+        hinted = "failed an automatic check" in user
+        if self.corrupt and not (self.fix_when_hinted and hinted):
+            return self.corrupt(result, case, kind)
+        return result
