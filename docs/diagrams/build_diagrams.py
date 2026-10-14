@@ -84,7 +84,7 @@ class Svg:
 
 def header(s, title, subtitle):
     s.text(30, 42, title, 22, "bold")
-    s.text(30, 66, subtitle, 13, "normal", SOFT)
+    s.text(30, 68, subtitle, 15, "normal", SOFT)
 
 
 def legend(s, x, y, items):
