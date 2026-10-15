@@ -45,7 +45,11 @@ def test_perfect_model_scores_perfectly(data_dir):
     assert s["status"] == {"ok": 85, "needs_review": 5}
     assert s["prompt_injection"]["documents"] == 7
     assert s["prompt_injection"]["leaked_into_extraction"] == 0
-    assert "Classification accuracy" in format_report(s)
+    # every charge gets its true code; only the 3 surcharges with no taxonomy entry are flagged
+    n = s["normalization"]
+    assert n["charge_code_accuracy"] == 1.0 and n["confident_wrong"] == 0 and n["alias_gaps"] == 0
+    assert n["flagged"].startswith("3/")
+    assert "Classification accuracy" in format_report(s) and "Normalization:" in format_report(s)
 
 
 def test_dropping_a_charge_lowers_recall_and_creates_false_alarms(data_dir):
@@ -78,7 +82,8 @@ def test_injected_text_copied_into_output_is_counted_as_a_leak(data_dir):
 def test_failed_document_scores_zero_not_crash():
     truth = {"case_id": "c", "error_kind": "CLEAN", "prompt_injection": False, "injection_text": "",
              "quote": {"carrier_id": "x", "quote_ref": "Q", "issued_on": "2026-01-01", "valid_until": "2026-02-01",
-                       "currency": "USD", "charges": [{"raw_label": "Ocean freight", "amount_minor": 100}]}}
+                       "currency": "USD", "origin": "PKKHI", "destination": "CNSHA", "container_type": "40GP",
+                       "charges": [{"raw_label": "Ocean freight", "amount_minor": 100}]}}
     score = score_document("quote", truth, {"status": "failed"}, source_format="pdf")
     assert not score.doc_type_ok and not any(score.fields.values())
     assert (score.charge_tp, score.charge_fn) == (0, 1) and not score.exact
@@ -122,3 +127,28 @@ def test_without_the_hint_a_misreading_model_stays_wrong_after_all_retries(data_
     assert s["validator"]["false_total_mismatch"] == "40/40"
     assert s["repair_loop"]["fixed"] == 0
     assert s["repair_loop"]["extra_extractions"] == 45 * 2  # each retried exactly twice, then given up
+
+
+def test_normalization_scoring_separates_alias_gaps_from_confident_wrong():
+    """Four charges, four different outcomes. 'Confident wrong' is the one that must stay at zero."""
+    from freight_intel.pipeline.validation import TypedCharge, TypedDocument
+
+    def line(label, amount, code):
+        return {"raw_label": label, "amount_minor": amount, "code": code}
+
+    truth = {"case_id": "c", "error_kind": "CLEAN", "prompt_injection": False, "injection_text": "",
+             "quote": {"carrier_id": "x"},
+             "invoice": {"invoice_no": "I", "quote_ref": "Q", "invoice_date": "2026-01-01", "currency": "USD",
+                         "origin": "PKKHI", "destination": "CNSHA", "container_type": "40GP", "stated_total_minor": 650,
+                         "charges": [line("Ocean Freight", 100, "OCEAN_FREIGHT"), line("Bunker Levy", 200, "BAF"),
+                                     line("Peak Season Surcharge", 300, "OTHER"), line("CAF", 50, "CAF")]}}
+    charges = [
+        TypedCharge("Ocean Freight", 100, "OCEAN_FREIGHT", True),  # right
+        TypedCharge("Bunker Levy", 200, "OTHER", False),  # unknown spelling of a real code: flagged, an alias gap
+        TypedCharge("Peak Season Surcharge", 300, "OTHER", False),  # genuinely unknown: flagged, and OTHER is right
+        TypedCharge("CAF", 50, "BAF", True),  # a wrong code that nobody was warned about
+    ]
+    typed = TypedDocument("invoice", "I", "Q", None, None, "USD", charges, 650)
+    score = score_document("invoice", truth, {"typed": typed, "doc_type": "invoice"}, source_format="pdf")
+    assert (score.code_checked, score.code_right, score.code_flagged) == (4, 2, 2)
+    assert (score.code_confident_wrong, score.alias_gaps) == (1, 1)

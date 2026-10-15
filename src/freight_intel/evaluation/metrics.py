@@ -29,6 +29,11 @@ class DocScore:
     charge_fp: int
     charge_fn: int
     amount_tp: int = 0  # charges whose AMOUNT matched, ignoring the label (diagnostic)
+    code_checked: int = 0  # correctly read charges, so their canonical code can be checked
+    code_right: int = 0
+    code_flagged: int = 0  # labels the normalizer did not recognise (sent to a human)
+    code_confident_wrong: int = 0  # wrong code AND not flagged: the dangerous kind
+    alias_gaps: int = 0  # flagged although the truth has a real code: our table lacks a spelling
     issue_codes: list[str] = field(default_factory=list)
     injection_leaked: bool = False
     seconds: float = 0.0
@@ -52,6 +57,9 @@ def expected_values(kind: str, truth: dict) -> tuple[dict, list[tuple[str, int]]
             "date": date.fromisoformat(q["issued_on"]),
             "valid_until": date.fromisoformat(q["valid_until"]),
             "currency": q["currency"],
+            "origin": q["origin"],
+            "destination": q["destination"],
+            "equipment": q["container_type"],
             "total_minor": sum(a for _, a in charges),
         }
     else:
@@ -62,6 +70,9 @@ def expected_values(kind: str, truth: dict) -> tuple[dict, list[tuple[str, int]]
             "quote_reference": i["quote_ref"],
             "date": date.fromisoformat(i["invoice_date"]),
             "currency": i["currency"],
+            "origin": i["origin"],
+            "destination": i["destination"],
+            "equipment": i["container_type"],
             "total_minor": i["stated_total_minor"],  # what the invoice PRINTS, even when wrong
         }
     return values, charges
@@ -82,6 +93,7 @@ def score_document(kind: str, truth: dict, state: dict, *, source_format: str, s
     missed: list = []
     extra: list = []
     amount_tp = 0
+    checked = right = flagged = confident_wrong = gaps = 0
     if typed is None:  # failed / unsupported: nothing was extracted
         fields = {name: False for name in expected}
         tp, fp, fn = 0, 0, len(expected_charges)
@@ -92,6 +104,9 @@ def score_document(kind: str, truth: dict, state: dict, *, source_format: str, s
             "date": typed.date,
             "valid_until": typed.valid_until,
             "currency": typed.currency,
+            "origin": typed.origin,
+            "destination": typed.destination,
+            "equipment": typed.equipment,
             "total_minor": typed.total_minor,
         }
         fields = {name: got[name] == value for name, value in expected.items()}
@@ -103,6 +118,18 @@ def score_document(kind: str, truth: dict, state: dict, *, source_format: str, s
         amount_tp = sum((Counter(c.amount_minor for c in typed.charges) & Counter(a for _, a in expected_charges)).values())
         missed = [list(k) for k in (wanted - predicted).elements()]
         extra = [list(k) for k in (predicted - wanted).elements()]
+        # Normalization: for every charge the model read correctly, did we give it the right canonical code?
+        code_of = {(_norm(c["raw_label"]), c["amount_minor"]): c["code"]
+                   for c in truth["quote" if kind == "quote" else "invoice"]["charges"]}
+        for c in typed.charges:
+            want = code_of.get((_norm(c.label), c.amount_minor))
+            if want is None:
+                continue  # not a real charge: an extraction error, already counted above
+            checked += 1
+            right += c.code == want
+            flagged += not c.known
+            confident_wrong += c.code != want and c.known
+            gaps += not c.known and want != "OTHER"
 
     predicted_type = state.get("doc_type")
     return DocScore(
@@ -114,7 +141,8 @@ def score_document(kind: str, truth: dict, state: dict, *, source_format: str, s
         issue_codes=[i.code for i in state.get("issues", [])],
         injection_leaked=_leaked(state, truth.get("injection_text", "")) if kind == "invoice" else False,
         seconds=seconds, error=(state.get("error") or "")[:300], missed=missed, extra=extra,
-        attempts=state.get("attempts", 0),
+        attempts=state.get("attempts", 0), code_checked=checked, code_right=right, code_flagged=flagged,
+        code_confident_wrong=confident_wrong, alias_gaps=gaps,
     )
 
 
@@ -188,6 +216,12 @@ def summarize(scores: list[DocScore]) -> dict:
             "field_accuracy": _overall_field_accuracy(injected),
             "exact_match_rate": _ratio(sum(s.exact for s in injected), len(injected)),
             "leaked_into_extraction": sum(s.injection_leaked for s in injected),
+        },
+        "normalization": {
+            "charge_code_accuracy": _ratio(sum(s.code_right for s in scores), sum(s.code_checked for s in scores)),
+            "confident_wrong": sum(s.code_confident_wrong for s in scores),  # must stay 0
+            "flagged": f"{sum(s.code_flagged for s in scores)}/{sum(s.code_checked for s in scores)}",
+            "alias_gaps": sum(s.alias_gaps for s in scores),  # spellings to add to normalize.py
         },
         "repair_loop": {
             "retried": sum(s.attempts > 1 for s in scores),
