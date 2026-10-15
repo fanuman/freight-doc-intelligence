@@ -8,8 +8,8 @@ overcharges, missing or unquoted charges, currency mismatches and expired quotes
 > Deterministic code converts it to numbers, validates it, and (soon) reconciles quote against invoice.
 > The model never does arithmetic or decides whether a charge is correct.
 
-**Status: work in progress (portfolio project).** The extraction pipeline, evaluation harness and multi-tenant
-foundation are built and tested. Normalization, persistence, reconciliation, the review screen and cloud deployment are
+**Status: work in progress (portfolio project).** The extraction pipeline, normalization, evaluation harness and
+multi-tenant foundation are built and tested. Persistence, reconciliation, the review screen and cloud deployment are
 planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
 ## How it works
@@ -37,6 +37,14 @@ to the printed total, wrote a hint, and the graph went back to the extractor, wh
 longer add up to the printed total, the graph goes back to the extractor with a hint built from the computed sums
 ("your charges add up to X but the printed total is Y"). The hint never contains the right answer. A document whose
 printed total really is wrong stays wrong after the retries and goes to a human, so the loop cannot hide a genuine error.
+
+### Normalization: many spellings, one code
+
+Carriers spell the same charge differently (`Ocean Freight`, `O/F`, `Sea Freight`), and ports and container types vary too
+(`Jebel Ali (AEJEA)`, `40' High Cube`, `40HQ`). After extraction, plain code maps each one to a canonical code
+(`OCEAN_FREIGHT`, `AEJEA`, `40HC`) using an exact lookup table, so a quote and an invoice can be compared by code rather than by wording.
+A label that is not in the table becomes `OTHER` and is flagged for a human. It is never guessed: a fuzzy match would silently
+file an unquoted surcharge under a quoted one, which is exactly the thing this tool exists to catch.
 
 ## Multi-tenant foundation
 
@@ -66,12 +74,15 @@ scoring code itself before any money is spent.
 | Metric | Result |
 |---|---|
 | Document type classification | 100% |
-| Field accuracy (reference, dates, currency, total) | 100% |
+| Field accuracy (reference, dates, currency, ports, container type, total) | 100% |
 | Charge extraction F1 (label and amount must both match) | 100% |
 | Invoices with a genuinely wrong total that were flagged | 5 of 5 |
 | False alarms on correct invoices | 0 of 40 |
 | Prompt-injection invoices leaking into the output | 0 of 7 |
-| Repair loop | 6 retried, 1 fixed, 5 correctly left for review |
+| Charge-code accuracy (canonical code per correctly read charge) | 100% |
+| Wrong codes that were not flagged ("confident wrong") | 0 |
+| Unknown charge labels flagged for a human | 3 of 564 (the genuinely unknown surcharges) |
+| Repair loop | misread totals are re-read up to twice; a document that is really wrong stays flagged |
 | Cost of a full run | about $0.03 |
 
 How the first baseline improved: charge F1 was 78.5% because the model appended table columns like "per container" to charge
@@ -79,6 +90,8 @@ names; one prompt rule fixed it (99.8%), and the repair loop fixed the last misr
 
 **Read these numbers honestly:** the data is synthetic and was produced by my own generator, and the prompt was tuned on the
 same 90 documents it is scored on. They show the system works on this dataset, not what accuracy on real-world documents would be.
+The normalization table was written knowing the generator's spellings, so its 100% shows the wiring works, not that it
+covers real carriers' wording; on real documents the number to watch is how often labels are flagged.
 
 ## Quick start
 
@@ -121,11 +134,11 @@ src/freight_intel/
   repositories/ database queries
   models/       SQLAlchemy tables
   schemas/      request and response shapes
-  pipeline/     parse, classify, extract, validate, repair loop (LangGraph)
+  pipeline/     parse, classify, extract, validate, normalize, repair loop (LangGraph)
   evaluation/   scoring and the evaluation command line
   synth/        synthetic document generator and the oracle test model
 migrations/     Alembic migrations (tables, roles, row-level security)
-tests/          142 tests
+tests/          unit, integration and evaluation tests
 docs/           design document, images/ (README pictures), diagrams/ (script that draws them)
 ```
 
@@ -138,7 +151,7 @@ docs/           design document, images/ (README pictures), diagrams/ (script th
 | Synthetic dataset with ground truth | done |
 | Extraction pipeline, LangGraph, LangSmith tracing, evaluation | done |
 | Repair loop for misread totals | done |
-| Normalization to canonical charge, port and container codes | planned |
+| Normalization to canonical charge, port and container codes | done |
 | Save results; quote-versus-invoice reconciliation | planned |
 | Human review (pause and resume) and a CI evaluation gate | planned |
 | Review screen (web UI) and demo | planned |
