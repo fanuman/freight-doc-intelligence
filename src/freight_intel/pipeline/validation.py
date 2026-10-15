@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from freight_intel.pipeline.money import normalize_currency, parse_date, parse_money
+from freight_intel.pipeline.normalize import normalize_charge, normalize_equipment, normalize_port
 
 ROUNDING_TOLERANCE_MINOR = 1  # lines may differ from the printed total by one cent
 
@@ -28,14 +29,16 @@ class Issue:
 
 @dataclass(frozen=True)
 class TypedCharge:
-    label: str
+    label: str  # exactly as printed: kept for humans and as an audit trail
     amount_minor: int | None  # None = we could not read the amount
+    code: str = "OTHER"  # canonical code from normalize.py, e.g. "OCEAN_FREIGHT"
+    known: bool = False  # False = the label is not in our table, so a human should look
 
 
 @dataclass
 class TypedDocument:
-    """The extraction after conversion: real numbers and dates, still not normalised
-    to canonical codes (that is Day 39)."""
+    """The extraction after conversion: real numbers and dates, and canonical codes
+    for charges, ports and the container type (None = missing or not recognised)."""
 
     doc_type: str
     reference: str | None
@@ -45,6 +48,9 @@ class TypedDocument:
     currency: str | None
     charges: list[TypedCharge]
     total_minor: int | None
+    origin: str | None = None  # UN/LOCODE, e.g. "PKKHI"
+    destination: str | None = None
+    equipment: str | None = None  # "20GP" | "40GP" | "40HC"
 
 
 @dataclass
@@ -96,13 +102,28 @@ def validate(doc_type: str, extraction) -> ValidationResult:
         issues.append(Issue("UNKNOWN_CURRENCY", f"unrecognised currency {extraction.currency_text!r}",
                             field="currency_text"))
 
+    origin = normalize_port(extraction.origin_text)
+    destination = normalize_port(extraction.destination_text)
+    equipment = normalize_equipment(extraction.equipment_text)
+    for field_name, text, result, issue_code in (
+        ("origin_text", extraction.origin_text, origin, "UNKNOWN_PORT"),
+        ("destination_text", extraction.destination_text, destination, "UNKNOWN_PORT"),
+        ("equipment_text", extraction.equipment_text, equipment, "UNKNOWN_EQUIPMENT"),
+    ):
+        if text and result is None:  # present on the page, but not in our table
+            issues.append(Issue(issue_code, f"unrecognised value {text!r}", severity="warning", field=field_name))
+
     charges = []
     for raw in extraction.charges:
         amount = parse_money(raw.amount_text)
         if amount is None:
             issues.append(Issue("UNPARSEABLE_AMOUNT",
                                 f"cannot read amount {raw.amount_text!r} for {raw.label!r}", field="charges"))
-        charges.append(TypedCharge(raw.label, amount))
+        code, known = normalize_charge(raw.label)
+        if not known:
+            issues.append(Issue("UNKNOWN_CHARGE", f"unrecognised charge label {raw.label!r}",
+                                severity="warning", field="charges"))
+        charges.append(TypedCharge(raw.label, amount, code, known))
     if not charges:
         issues.append(Issue("NO_CHARGES", "no charge lines found", field="charges"))
 
@@ -139,5 +160,8 @@ def validate(doc_type: str, extraction) -> ValidationResult:
         currency=currency,
         charges=charges,
         total_minor=total,
+        origin=origin,
+        destination=destination,
+        equipment=equipment,
     )
     return ValidationResult(typed, issues)

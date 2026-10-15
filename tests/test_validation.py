@@ -22,7 +22,8 @@ def test_perfect_extractions_have_no_errors_except_real_arithmetic_errors():
         if case.error_kind == ARITHMETIC_ERROR:
             assert codes(inv) == ["TOTAL_MISMATCH"], case.case_id  # a TRUE finding about the document
         else:
-            assert inv.ok and codes(inv) == [], case.case_id
+            unknown = sum(c.code == "OTHER" for c in case.invoice.charges)
+            assert inv.ok and codes(inv) == ["UNKNOWN_CHARGE"] * unknown, case.case_id
 
 
 def test_typed_values_match_ground_truth():
@@ -33,10 +34,17 @@ def test_typed_values_match_ground_truth():
         assert q.currency == case.quote.currency
         assert [c.amount_minor for c in q.charges] == [c.amount_minor for c in case.quote.charges]
         assert q.total_minor == case.quote.total_minor
+        assert [(c.code, c.known) for c in q.charges] == [(c.code, True) for c in case.quote.charges]
+        assert (q.origin, q.destination, q.equipment) == (
+            case.quote.origin, case.quote.destination, case.quote.container_type)
 
         i = validate("invoice", perfect_extraction(case, "invoice")).typed
         assert i.reference == case.invoice.invoice_no and i.quote_reference == case.invoice.quote_ref
         assert i.total_minor == case.invoice.stated_total_minor
+        assert [c.code for c in i.charges] == [c.code for c in case.invoice.charges]
+        assert [c.known for c in i.charges] == [c.code != "OTHER" for c in case.invoice.charges]
+        assert (i.origin, i.destination, i.equipment) == (
+            case.invoice.origin, case.invoice.destination, case.invoice.container_type)
 
 
 @pytest.fixture
@@ -110,3 +118,14 @@ def test_missing_total_is_only_a_warning(invoice):
     result = validate("invoice", invoice)
     assert [i.severity for i in result.issues if i.code == "MISSING_TOTAL"] == ["warning"]
     assert result.ok
+
+
+def test_unknown_labels_are_flagged_not_guessed(invoice):
+    invoice.charges[0].label = "Quantum Handling Surcharge"
+    invoice.origin_text = "Atlantis"
+    invoice.equipment_text = "53' Reefer"
+    result = validate("invoice", invoice)
+    assert [c.code for c in result.typed.charges][0] == "OTHER" and not result.typed.charges[0].known
+    assert result.typed.origin is None and result.typed.equipment is None
+    assert {"UNKNOWN_CHARGE", "UNKNOWN_PORT", "UNKNOWN_EQUIPMENT"} <= set(codes(result))
+    assert result.ok  # warnings: flagged for a human, but the document is not rejected
