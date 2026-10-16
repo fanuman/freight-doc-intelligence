@@ -5,12 +5,12 @@ extracts the charges, checks the arithmetic, and flags what needs a human. The g
 overcharges, missing or unquoted charges, currency mismatches and expired quotes before an invoice is paid.
 
 > **Principle: the LLM reads, software decides.** The model only *copies* text out of messy documents.
-> Deterministic code converts it to numbers, validates it, and (soon) reconciles quote against invoice.
+> Deterministic code converts it to numbers, validates it, and reconciles quote against invoice.
 > The model never does arithmetic or decides whether a charge is correct.
 
-**Status: work in progress (portfolio project).** The extraction pipeline, normalization, evaluation harness and
-multi-tenant foundation are built and tested. Persistence, reconciliation, the review screen and cloud deployment are
-planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
+**Status: work in progress (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
+reconciliation, saved results, evaluation harness and multi-tenant foundation are built and tested. Human review, the
+review screen and cloud deployment are planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
 ## How it works
 
@@ -45,6 +45,24 @@ Carriers spell the same charge differently (`Ocean Freight`, `O/F`, `Sea Freight
 (`OCEAN_FREIGHT`, `AEJEA`, `40HC`) using an exact lookup table, so a quote and an invoice can be compared by code rather than by wording.
 A label that is not in the table becomes `OTHER` and is flagged for a human. It is never guessed: a fuzzy match would silently
 file an unquoted surcharge under a quoted one, which is exactly the thing this tool exists to catch.
+
+### Reconciliation: did the carrier invoice what it quoted?
+
+With every charge in canonical form, plain code compares a quote with its invoice. First it finds the quote: the one the
+invoice cites, or else the only quote on the same route and equipment issued before the invoice date. If the cited quote is
+missing or several quotes fit, it stops and a human decides; it never guesses. Then it compares charge by charge, forgiving
+a difference of up to 1 cent or 0.5% (rounding), and reports: overcharge, undercharge, unquoted charge, missing charge,
+currency mismatch, expired quote, and an arithmetic error in the printed total. All money is integer cents, never floats,
+and no model is involved in this step.
+
+### Saved results
+
+Results are stored in Postgres: one extraction per document (the model's raw output as JSONB for audit, plus typed columns
+for queries), its charges, and one reconciliation per invoice with a row for each discrepancy. Saving is a single
+transaction, so a crash leaves nothing half-written, and processing a document again replaces the old rows instead of
+duplicating them. Every table carries the same row-level security policy, and child rows point at their parent by
+`(tenant_id, id)`, so even a bug in application code cannot link one company's data to another's (Postgres checks plain
+foreign keys without applying row-level security, so the composite key is what closes that gap).
 
 ## Multi-tenant foundation
 
@@ -83,6 +101,7 @@ scoring code itself before any money is spent.
 | Wrong codes that were not flagged ("confident wrong") | 0 |
 | Unknown charge labels flagged for a human | 3 of 564 (the genuinely unknown surcharges) |
 | Repair loop | misread totals are re-read up to twice; a document that is really wrong stays flagged |
+| Reconciliation findings vs. the generator's answer (perfect extraction, not the real model) | exact match on all 45 cases |
 | Cost of a full run | about $0.03 |
 
 How the first baseline improved: charge F1 was 78.5% because the model appended table columns like "per container" to charge
@@ -130,14 +149,14 @@ The pictures above are drawn by `docs/diagrams/build_diagrams.py` (plain Python,
 ```
 src/freight_intel/
   api/          FastAPI app, routes and dependencies
-  services/     business rules (sign-up, login)
+  services/     business rules (sign-up, login, saving results, reconciling invoices)
   repositories/ database queries
   models/       SQLAlchemy tables
   schemas/      request and response shapes
-  pipeline/     parse, classify, extract, validate, normalize, repair loop (LangGraph)
+  pipeline/     parse, classify, extract, validate, normalize, reconcile, repair loop (LangGraph)
   evaluation/   scoring and the evaluation command line
   synth/        synthetic document generator and the oracle test model
-migrations/     Alembic migrations (tables, roles, row-level security)
+migrations/     Alembic migrations (tables, roles, row-level security, results and reconciliation)
 tests/          unit, integration and evaluation tests
 docs/           design document, images/ (README pictures), diagrams/ (script that draws them)
 ```
@@ -152,7 +171,8 @@ docs/           design document, images/ (README pictures), diagrams/ (script th
 | Extraction pipeline, LangGraph, LangSmith tracing, evaluation | done |
 | Repair loop for misread totals | done |
 | Normalization to canonical charge, port and container codes | done |
-| Save results; quote-versus-invoice reconciliation | planned |
+| Quote-versus-invoice reconciliation | done |
+| Save results (extractions, charges, reconciliations) with tenant isolation | done |
 | Human review (pause and resume) and a CI evaluation gate | planned |
 | Review screen (web UI) and demo | planned |
 | Container deployment (Terraform, ECS) | planned |

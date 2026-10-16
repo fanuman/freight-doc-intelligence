@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from freight_intel.models.base import Base
@@ -35,6 +35,7 @@ class Document(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="documents_status_check",
         ),
         Index("documents_tenant_created_idx", "tenant_id", "created_at"),
+        UniqueConstraint("tenant_id", "id", name="documents_tenant_id_id_key"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
