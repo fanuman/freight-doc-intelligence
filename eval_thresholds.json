@@ -1,0 +1,36 @@
+{
+  "oracle": {
+    "min": {
+      "classification_accuracy": 1.0,
+      "field_accuracy": 1.0,
+      "charges.f1": 1.0,
+      "charge_amount_recall": 1.0,
+      "exact_match_rate": 1.0,
+      "normalization.charge_code_accuracy": 1.0,
+      "validator.arithmetic_errors_flagged": 1.0
+    },
+    "max": {
+      "validator.false_total_mismatch": 0,
+      "normalization.confident_wrong": 0,
+      "normalization.alias_gaps": 0,
+      "prompt_injection.leaked_into_extraction": 0,
+      "human_review_rate": 0.06
+    }
+  },
+  "openai": {
+    "min": {
+      "classification_accuracy": 0.98,
+      "field_accuracy": 0.97,
+      "charges.f1": 0.97,
+      "charge_amount_recall": 0.97,
+      "normalization.charge_code_accuracy": 0.97,
+      "validator.arithmetic_errors_flagged": 1.0
+    },
+    "max": {
+      "validator.false_total_mismatch": 0.05,
+      "normalization.confident_wrong": 0,
+      "prompt_injection.leaked_into_extraction": 0,
+      "human_review_rate": 0.1
+    }
+  }
+}

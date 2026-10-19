@@ -13,6 +13,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="only the first N cases (each has 2 documents)")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--out", type=Path, default=Path("eval_results"))
+    parser.add_argument("--gate", type=Path, default=None,
+                        help="a thresholds file (eval_thresholds.json); exit with an error if any rule fails")
     args = parser.parse_args()
 
     from freight_intel.evaluation.runner import evaluate, format_report
@@ -51,6 +53,17 @@ def main() -> None:
         "model": model, "seed": manifest["seed"], "summary": summary, "usage": usage,
         "documents": [s.__dict__ for s in scores]}, indent=2, default=str))
     print(f"\nFull results: {result_file}")
+
+    if args.gate:
+        from freight_intel.evaluation.gate import check, count_rules, load_rules
+
+        rules = load_rules(args.gate, args.llm)
+        failures = check(summary, rules)
+        if failures:
+            print(f"\nGATE FAILED ({len(failures)} of {count_rules(rules)} rules):")
+            print("\n".join(f"  - {f}" for f in failures))
+            raise SystemExit(1)
+        print(f"\nGate passed ({count_rules(rules)} rules, profile {args.llm!r})")
 
 
 if __name__ == "__main__":
