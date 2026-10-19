@@ -21,7 +21,8 @@ MAX_CHARS = 30_000  # a hard cap, so a huge or hostile file can't run up the bil
 class DocState(TypedDict, total=False):
     """Everything the graph knows about one document. Each node adds to it.
 
-    status ends as one of: ok | needs_review | failed | unsupported
+    status ends as one of: ok | needs_review | reviewed | rejected | failed | unsupported
+    (reviewed and rejected only appear when a person answered a review request)
     """
 
     file_path: str
@@ -34,6 +35,7 @@ class DocState(TypedDict, total=False):
     error: str
     attempts: int  # how many times the extractor has run on this document
     hint: str  # what the last validation found wrong, for the next attempt
+    review: dict  # who reviewed it and what they decided (set by the review step)
 
 
 def _text(state: DocState) -> str:
@@ -115,10 +117,11 @@ def route_after_extract(state: DocState) -> str:
 
 
 def route_after_validate(state: DocState) -> str:
-    """The loop: go back to the same extractor while there is a hint and retries left."""
+    """The loop: go back to the same extractor while there is a hint and retries left.
+    Otherwise a document that still has errors goes to a person; a clean one is finished."""
     if state.get("hint") and state["attempts"] <= MAX_RETRIES:
         return f"extract_{state['doc_type']}"  # extract_quote or extract_invoice
-    return "end"
+    return "review" if state.get("status") == "needs_review" else "end"
 
 
 def run_sequentially(llm: LLM, path: str) -> DocState:
@@ -147,5 +150,5 @@ def run_sequentially(llm: LLM, path: str) -> DocState:
         if route_after_extract(state) == "end":
             return state
         state.update(validate_node(state))
-        if route_after_validate(state) == "end":
+        if route_after_validate(state) in ("end", "review"):  # nobody to ask here: stop with needs_review
             return state
