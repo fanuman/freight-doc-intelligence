@@ -1,0 +1,62 @@
+name: CI
+
+# Runs on every push to main and on every pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read   # the workflow can read the code and nothing else
+
+concurrency:       # a newer push cancels the older run of the same branch
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Throwaway values for a database that exists only during this run. No real secrets are involved.
+      - name: Create .env from the example file
+        run: cp .env.example .env
+
+      - name: Start Postgres (creates the owner and app roles, like on your laptop)
+        run: docker compose up -d --wait db
+
+      - name: Install the project
+        run: pip install -e ".[dev]"
+
+      - name: Create the tables
+        run: alembic upgrade head
+
+      - name: Run the tests
+        run: pytest -q
+
+      # No model is called here: the oracle is a pretend perfect extractor. This catches a broken
+      # pipeline, validator, normalization or scoring, for free.
+      - name: Evaluation gate (oracle, free)
+        run: |
+          python -m freight_intel.synth
+          python -m freight_intel.evaluation --llm oracle --gate eval_thresholds.json
+
+      - name: Keep the evaluation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval_results/
+          if-no-files-found: ignore
+
+      - name: Show the database log if something failed
+        if: failure()
+        run: docker compose logs db --tail 50
