@@ -1,5 +1,7 @@
 # FreightLens
 
+[![CI](https://github.com/fanuman/freight-doc-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/fanuman/freight-doc-intelligence/actions/workflows/ci.yml)
+
 **Freight document intelligence.** Upload a carrier quote and an invoice (PDF, Excel or e-mail), and FreightLens
 extracts the charges, checks the arithmetic, and flags what needs a human. The goal is to catch things like
 overcharges, missing or unquoted charges, currency mismatches and expired quotes before an invoice is paid.
@@ -9,8 +11,8 @@ overcharges, missing or unquoted charges, currency mismatches and expired quotes
 > The model never does arithmetic or decides whether a charge is correct.
 
 **Status: work in progress (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
-reconciliation, saved results, evaluation harness and multi-tenant foundation are built and tested. Human review, the
-review screen and cloud deployment are planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
+reconciliation, saved results, a pause-and-resume human review step, an evaluation harness with a CI quality gate and the
+multi-tenant foundation are built and tested. The review screen and cloud deployment are planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
 ## How it works
 
@@ -64,6 +66,15 @@ duplicating them. Every table carries the same row-level security policy, and ch
 `(tenant_id, id)`, so even a bug in application code cannot link one company's data to another's (Postgres checks plain
 foreign keys without applying row-level security, so the composite key is what closes that gap).
 
+### Human review: the graph pauses for a person
+
+When validation still finds errors after the retries (for example an invoice whose printed total really is wrong), the graph
+does not guess and does not dead-end. It **pauses** at a review step, saves its whole state (a LangGraph *checkpoint*, one
+thread per document), and waits. A reviewer then approves, corrects or rejects it, and the graph resumes from where it
+stopped. A correction is checked by the same validation code as the model's reading, approving over an error
+requires a written note, and every decision records who made it. The rules live in plain functions (`pipeline/review.py`) that
+are tested without LangGraph; LangGraph only provides the pause, the checkpoint and the resume. Today the checkpoint lives in memory (tests); connecting the step to the API with a database-backed checkpoint, so a paused review survives a restart, is the next step.
+
 ## Multi-tenant foundation
 
 Each company's data is isolated by Postgres **row-level security**, not just by application code.
@@ -112,6 +123,13 @@ same 90 documents it is scored on. They show the system works on this dataset, n
 The normalization table was written knowing the generator's spellings, so its 100% shows the wiring works, not that it
 covers real carriers' wording; on real documents the number to watch is how often labels are flagged.
 
+## Continuous integration and the quality gate
+
+Every push runs [GitHub Actions](.github/workflows/ci.yml): it starts a throwaway Postgres, applies the migrations, runs all tests,
+then evaluates the pipeline with the free oracle model through a **quality gate** (`eval_thresholds.json`). If a metric falls
+below its limit, or a metric goes missing, the run turns red. Real-model quality is measured by a separate workflow that only
+runs when started by hand, so a push never spends money.
+
 ## Quick start
 
 Requires Python 3.10+ and Docker.
@@ -135,6 +153,7 @@ uvicorn freight_intel.api.main:app --reload     # docs at http://localhost:8000/
 # 5. generate the synthetic dataset and score the pipeline
 python -m freight_intel.synth                    # writes data/synthetic/ (gitignored)
 python -m freight_intel.evaluation --llm oracle  # free: a pretend perfect model, tests the scoring
+python -m freight_intel.evaluation --llm oracle --gate eval_thresholds.json   # same, and exit with an error if a limit is broken
 python -m freight_intel.evaluation --llm openai  # needs OPENAI_API_KEY, about $0.03
 ```
 
@@ -153,12 +172,14 @@ src/freight_intel/
   repositories/ database queries
   models/       SQLAlchemy tables
   schemas/      request and response shapes
-  pipeline/     parse, classify, extract, validate, normalize, reconcile, repair loop (LangGraph)
-  evaluation/   scoring and the evaluation command line
+  pipeline/     parse, classify, extract, validate, normalize, reconcile, repair loop, human review (LangGraph)
+  evaluation/   scoring, the evaluation command line and the quality gate
   synth/        synthetic document generator and the oracle test model
 migrations/     Alembic migrations (tables, roles, row-level security, results and reconciliation)
 tests/          unit, integration and evaluation tests
 docs/           design document, images/ (README pictures), diagrams/ (script that draws them)
+.github/        CI workflows (tests and gate on every push; real-model evaluation by hand)
+eval_thresholds.json   limits the evaluation gate checks
 ```
 
 ## Roadmap
@@ -173,7 +194,8 @@ docs/           design document, images/ (README pictures), diagrams/ (script th
 | Normalization to canonical charge, port and container codes | done |
 | Quote-versus-invoice reconciliation | done |
 | Save results (extractions, charges, reconciliations) with tenant isolation | done |
-| Human review (pause and resume) and a CI evaluation gate | planned |
+| Human review (pause and resume) | done |
+| CI with an evaluation quality gate | done |
 | Review screen (web UI) and demo | planned |
 | Container deployment (Terraform, ECS) | planned |
 
