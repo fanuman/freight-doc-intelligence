@@ -17,7 +17,7 @@ from freight_intel.db import tenant_session
 from freight_intel.models import Charge, Document
 from freight_intel.pipeline.reconcile import reconcile
 from freight_intel.pipeline.validation import validate
-from freight_intel.repositories import documents, extractions, reconciliations
+from freight_intel.repositories import documents, extractions, reconciliations, reviews
 from freight_intel.services import results
 from freight_intel.synth.oracle import perfect_extraction
 from freight_intel.synth.scenario import build_dataset
@@ -58,7 +58,8 @@ def world(owner):
     yield SimpleNamespace(a=a, b=b, **ids)
     with owner.begin() as conn:  # documents first: extractions, charges and reconciliations cascade from them
         params = {"a": a, "b": b}
-        conn.execute(text("DELETE FROM documents WHERE tenant_id IN (:a, :b)"), params)
+        conn.execute(text("DELETE FROM documents WHERE tenant_id IN (:a, :b)"), params)  # reviews cascade with them
+        conn.execute(text("DELETE FROM users WHERE tenant_id IN (:a, :b)"), params)
         conn.execute(text("DELETE FROM tenants WHERE id IN (:a, :b)"), params)
 
 
@@ -220,3 +221,70 @@ def test_deleting_an_extraction_removes_its_charges_and_reconciliation(world, ow
     assert count(owner, "reconciliations", tenant_id=world.a) == 0  # it pointed at the deleted quote
     assert count(owner, "discrepancies", tenant_id=world.a) == 0
     assert count(owner, "extractions", id=invoice.extraction_id) == 1  # the invoice itself stays
+
+
+def make_user(owner, tenant_id):
+    user_id = uuid.uuid4()
+    with owner.begin() as conn:
+        conn.execute(
+            text("INSERT INTO users (id, tenant_id, email, password_hash) VALUES (:id, :tenant, :email, 'x')"),
+            {"id": user_id, "tenant": tenant_id, "email": f"{user_id}@example.com"},
+        )
+    return user_id
+
+
+def test_a_document_can_be_claimed_for_processing_only_once(world):
+    with tenant_session(world.a) as session:
+        assert documents.claim_for_processing(session, world.a_quote) is True
+    with tenant_session(world.a) as session:
+        assert documents.claim_for_processing(session, world.a_quote) is False  # already taken
+        assert documents.get(session, world.a_quote).status == "processing"
+
+
+def test_another_tenant_cannot_read_or_claim_a_document(world):
+    with tenant_session(world.b) as session:
+        assert documents.get(session, world.a_quote) is None
+        assert documents.claim_for_processing(session, world.a_quote) is False
+    with tenant_session(world.a) as session:
+        assert documents.get(session, world.a_quote).status == "uploaded"  # untouched
+
+
+def test_listing_shows_only_the_callers_documents(world):
+    with tenant_session(world.a) as session:
+        ids = {d.id for d in documents.list_recent(session, limit=10)}  # read inside: rows detach at commit
+        assert len(documents.list_recent(session, limit=1)) == 1
+    assert ids == {world.a_quote, world.a_invoice}
+
+
+def test_a_review_and_the_result_it_caused_are_saved_together_or_not_at_all(world, owner):
+    reviewer = make_user(owner, world.a)
+    state = state_for(CLEAN, "invoice") | {"status": "reviewed"}
+    with tenant_session(world.a) as session:
+        results.apply_pipeline_result(session, tenant_id=world.a, document_id=world.a_invoice, state=state)
+        reviews.add(session, tenant_id=world.a, document_id=world.a_invoice, reviewer_id=reviewer,
+                    action="approve", note="checked against the paper copy")
+    with tenant_session(world.a) as session:
+        assert documents.get(session, world.a_invoice).status == "processed"
+        assert extractions.get_for_document(session, world.a_invoice).status == "reviewed"
+        (review,) = reviews.list_for_document(session, world.a_invoice)
+        assert review.action == "approve" and review.reviewer_id == reviewer
+
+    with pytest.raises(RuntimeError):  # something fails after the review was added: it must not stay
+        with tenant_session(world.a) as session:
+            reviews.add(session, tenant_id=world.a, document_id=world.a_invoice, reviewer_id=reviewer, action="reject")
+            raise RuntimeError("boom")
+    assert count(owner, "reviews", document_id=world.a_invoice) == 1
+
+
+def test_a_review_cannot_name_another_tenants_user_as_the_reviewer(world, owner):
+    outsider = make_user(owner, world.b)
+    with pytest.raises(IntegrityError):
+        with tenant_session(world.a) as session:
+            reviews.add(session, tenant_id=world.a, document_id=world.a_invoice, reviewer_id=outsider, action="approve")
+
+
+def test_a_correction_must_carry_its_corrected_data(world, owner):
+    reviewer = make_user(owner, world.a)
+    with pytest.raises(IntegrityError):
+        with tenant_session(world.a) as session:
+            reviews.add(session, tenant_id=world.a, document_id=world.a_invoice, reviewer_id=reviewer, action="correct")

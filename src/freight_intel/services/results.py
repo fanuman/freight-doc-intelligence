@@ -9,6 +9,8 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from sqlalchemy.orm import Session
+
 from freight_intel.db import tenant_session
 from freight_intel.pipeline.reconcile import match_quote, reconcile
 from freight_intel.repositories import documents, extractions, reconciliations
@@ -43,16 +45,25 @@ def save_pipeline_result(*, tenant_id: uuid.UUID, document_id: uuid.UUID, state:
     If the run failed, no extraction is written and an earlier successful one is kept: the
     document's status describes the latest run, the extraction the latest successful reading.
     """
+    with tenant_session(tenant_id) as session:
+        return apply_pipeline_result(session, tenant_id=tenant_id, document_id=document_id, state=state)
+
+
+def apply_pipeline_result(session: Session, *, tenant_id: uuid.UUID, document_id: uuid.UUID, state: Mapping) -> SavedResult:
+    """The same work as save_pipeline_result, inside a transaction the CALLER opened.
+
+    Use it when the result must be saved together with something else, such as the record of the
+    review that produced it: both are written, or neither is. It never commits.
+    """
     doc_type, doc_status = mapping.document_outcome(state)
     values = mapping.extraction_values(state)
-    with tenant_session(tenant_id) as session:
-        extraction_id = None
-        if values is not None:
-            extraction = extractions.replace_for_document(
-                session, tenant_id=tenant_id, document_id=document_id, **values
-            )
-            extraction_id = extraction.id  # read it while the session is open
-        documents.record_outcome(session, document_id, doc_type=doc_type, status=doc_status)
+    extraction_id = None
+    if values is not None:
+        extraction = extractions.replace_for_document(
+            session, tenant_id=tenant_id, document_id=document_id, **values
+        )
+        extraction_id = extraction.id  # read it while the session is open
+    documents.record_outcome(session, document_id, doc_type=doc_type, status=doc_status)
     return SavedResult(doc_status, extraction_id)
 
 
