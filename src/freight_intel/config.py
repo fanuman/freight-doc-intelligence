@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
+    # Uploaded documents. A folder for now; S3 at deploy time.
+    storage_dir: str = "storage"
+    max_upload_bytes: int = 10 * 1024 * 1024  # 10 MB per file
+
     # Optional: only the document pipeline needs these, so the API, migrations
     # and most tests still run without them.
     openai_api_key: str | None = None

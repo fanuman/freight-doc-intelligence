@@ -19,3 +19,6 @@ data/synthetic/
 
 # evaluation run outputs (each run is a timestamped JSON file)
 eval_results/
+
+# uploaded documents (customer data: never commit)
+storage/
