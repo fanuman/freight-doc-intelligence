@@ -99,7 +99,7 @@ def review_loop(state: Mapping, ask: Callable[[dict], object]) -> dict:
             request = build_review_request(state, error=str(exc)[:500])
             continue
         if update["status"] != "needs_review":
-            return update
+            return {**latest, **update}  # keep what an earlier round corrected: approving means approving THAT reading
         latest = update  # a correction that still has errors: show what remains and ask again
         state = {**state, **update}
         request = build_review_request(state)

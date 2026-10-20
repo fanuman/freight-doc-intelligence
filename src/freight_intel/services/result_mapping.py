@@ -11,7 +11,12 @@ from freight_intel.pipeline.validation import TypedCharge, TypedDocument
 
 # How a pipeline run ended -> how the document is described in the database.
 # "unsupported" (for example a rate sheet) is recorded as failed: we could not process it.
-DOCUMENT_STATUS = {"ok": "processed", "needs_review": "needs_review", "failed": "failed", "unsupported": "failed"}
+DOCUMENT_STATUS = {
+    "ok": "processed", "needs_review": "needs_review",
+    "reviewed": "processed",  # a person approved or corrected it: as settled as an `ok` run
+    "rejected": "rejected",  # a person said it is not usable
+    "failed": "failed", "unsupported": "failed",
+}
 
 
 def document_outcome(state: Mapping) -> tuple[str, str]:
@@ -22,11 +27,12 @@ def document_outcome(state: Mapping) -> tuple[str, str]:
 def extraction_values(state: Mapping) -> dict | None:
     """The arguments for extractions.replace_for_document, or None when nothing usable was extracted.
 
-    Only a run that ended `ok` or `needs_review` has an extraction worth saving. A failed run
-    may still carry a half-finished `typed` from an earlier attempt, so the status decides.
+    Only a run that ended `ok`, `needs_review` or `reviewed` has an extraction worth saving. A failed
+    run may still carry a half-finished `typed` from an earlier attempt, so the status decides. A
+    `rejected` document saves nothing new: the earlier reading stays as the record of what was rejected.
     """
     typed = state.get("typed")
-    if typed is None or state.get("status") not in ("ok", "needs_review"):
+    if typed is None or state.get("status") not in ("ok", "needs_review", "reviewed"):
         return None
     return {
         "doc_type": typed.doc_type,

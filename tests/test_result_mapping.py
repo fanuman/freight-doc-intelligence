@@ -71,3 +71,12 @@ def test_document_outcome_and_failed_runs_save_no_extraction():
     assert mapping.document_outcome({"status": "failed"}) == ("unknown", "failed")
     half_finished = state_for(CASES[0], "quote") | {"status": "failed", "error": "model refused"}
     assert mapping.extraction_values(half_finished) is None  # a half-finished reading is not saved
+
+
+def test_reviewed_and_rejected_runs():
+    assert mapping.document_outcome({"doc_type": "invoice", "status": "reviewed"}) == ("invoice", "processed")
+    assert mapping.document_outcome({"doc_type": "invoice", "status": "rejected"}) == ("invoice", "rejected")
+    reviewed = state_for(CASES[0], "invoice") | {"status": "reviewed"}
+    assert mapping.extraction_values(reviewed)["status"] == "reviewed"
+    rejected = state_for(CASES[0], "invoice") | {"status": "rejected"}
+    assert mapping.extraction_values(rejected) is None  # nothing new to save; the earlier reading stays

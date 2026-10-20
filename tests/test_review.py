@@ -154,3 +154,15 @@ def test_router_sends_unresolved_errors_to_review_and_clean_documents_to_the_end
     retry = {**base, "hint": "x", "status": "needs_review"}
     assert nodes.route_after_validate(retry) == "extract_invoice"  # retries come first
     assert nodes.route_after_validate({**retry, "attempts": nodes.MAX_RETRIES + 1}) == "review"
+
+
+def test_a_correction_made_in_an_earlier_round_survives_a_later_approval():
+    """Round 1 improves the reading but it still has an error; round 2 approves it. The approved reading is the
+    corrected one, not the model's original."""
+    better = GOOD.model_copy(update={"charges": [GOOD.charges[0].model_copy(update={"amount_text": "2.00"}), *GOOD.charges[1:]]})
+    ask = scripted(decision("correct", extraction=better.model_dump(mode="json")),
+                   decision("approve", note="the document's own total is wrong"))
+    update = review.review_loop(broken_state(), ask)
+    assert update["status"] == "reviewed" and update["review"]["action"] == "approve"
+    assert update["extraction"] == better  # fails before the fix: the original BAD extraction comes back
+    assert update["typed"].charges[0].amount_minor == 200
