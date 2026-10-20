@@ -32,7 +32,7 @@ class Extraction(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "extractions"
     __table_args__ = (
         CheckConstraint("doc_type IN ('quote', 'invoice')", name="extractions_doc_type_check"),
-        CheckConstraint("status IN ('ok', 'needs_review')", name="extractions_status_check"),
+        CheckConstraint("status IN ('ok', 'needs_review', 'reviewed')", name="extractions_status_check"),
         UniqueConstraint("document_id", name="extractions_document_key"),  # one extraction per document
         UniqueConstraint("tenant_id", "id", name="extractions_tenant_id_id_key"),  # target for child tables
         ForeignKeyConstraint(
@@ -48,7 +48,7 @@ class Extraction(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
     document_id: Mapped[uuid.UUID] = mapped_column()
     doc_type: Mapped[str] = mapped_column(Text)  # quote | invoice
-    status: Mapped[str] = mapped_column(Text)  # ok | needs_review
+    status: Mapped[str] = mapped_column(Text)  # ok | needs_review | reviewed
 
     # The converted values reconciliation needs, as real columns so they can be queried.
     reference: Mapped[str | None] = mapped_column(Text)

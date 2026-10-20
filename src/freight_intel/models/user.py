@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import CheckConstraint, ForeignKey, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from freight_intel.models.base import Base
@@ -20,6 +20,7 @@ class User(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'member')", name="users_role_check"),
+        UniqueConstraint("tenant_id", "id", name="users_tenant_id_id_key"),  # target for reviews
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))

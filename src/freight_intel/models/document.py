@@ -21,6 +21,7 @@ class DocumentStatus(str, Enum):
     NEEDS_REVIEW = "needs_review"
     PROCESSED = "processed"
     FAILED = "failed"
+    REJECTED = "rejected"
 
 
 class Document(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -31,7 +32,7 @@ class Document(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             name="documents_doc_type_check",
         ),
         CheckConstraint(
-            "status IN ('uploaded', 'processing', 'needs_review', 'processed', 'failed')",
+            "status IN ('uploaded', 'processing', 'needs_review', 'processed', 'failed', 'rejected')",
             name="documents_status_check",
         ),
         Index("documents_tenant_created_idx", "tenant_id", "created_at"),
