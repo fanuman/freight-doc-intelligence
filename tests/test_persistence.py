@@ -288,3 +288,24 @@ def test_a_correction_must_carry_its_corrected_data(world, owner):
     with pytest.raises(IntegrityError):
         with tenant_session(world.a) as session:
             reviews.add(session, tenant_id=world.a, document_id=world.a_invoice, reviewer_id=reviewer, action="correct")
+
+
+def test_reconcile_refuses_an_invoice_nobody_has_settled(world):
+    save(world, "a_quote", OVERCHARGE, "quote")
+    waiting = results.save_pipeline_result(
+        tenant_id=world.a, document_id=world.a_invoice, state=state_for(OVERCHARGE, "invoice") | {"status": "needs_review"}
+    )
+    with pytest.raises(results.NotSettled):
+        results.reconcile_invoice(tenant_id=world.a, invoice_extraction_id=waiting.extraction_id)
+
+
+def test_a_quote_nobody_has_settled_is_not_used_until_a_person_settles_it(world):
+    invoice = save(world, "a_invoice", OVERCHARGE, "invoice")
+    quote_state = state_for(OVERCHARGE, "quote")
+    results.save_pipeline_result(tenant_id=world.a, document_id=world.a_quote, state=quote_state | {"status": "needs_review"})
+    outcome = results.reconcile_invoice(tenant_id=world.a, invoice_extraction_id=invoice.extraction_id)
+    assert outcome.status in ("reference_not_found", "no_candidate") and outcome.reconciliation_id is None
+
+    results.save_pipeline_result(tenant_id=world.a, document_id=world.a_quote, state=quote_state | {"status": "reviewed"})
+    outcome = results.reconcile_invoice(tenant_id=world.a, invoice_extraction_id=invoice.extraction_id)
+    assert outcome.status == "reconciled"

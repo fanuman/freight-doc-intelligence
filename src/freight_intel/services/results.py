@@ -17,8 +17,16 @@ from freight_intel.repositories import documents, extractions, reconciliations
 from freight_intel.services import result_mapping as mapping
 
 
+# Readings that can be trusted for money comparisons: the checks passed (ok) or a person settled them (reviewed).
+SETTLED = ("ok", "reviewed")
+
+
 class InvoiceNotFound(Exception):
     """No invoice extraction with that id in this tenant (or the id belongs to a quote)."""
+
+
+class NotSettled(Exception):
+    """The invoice's reading is still waiting for a person, or was rejected: it cannot be compared yet."""
 
 
 @dataclass(frozen=True)
@@ -78,10 +86,16 @@ def reconcile_invoice(*, tenant_id: uuid.UUID, invoice_extraction_id: uuid.UUID)
         invoice_row = extractions.get(session, invoice_extraction_id)
         if invoice_row is None or invoice_row.doc_type != "invoice":
             raise InvoiceNotFound
+        if invoice_row.status not in SETTLED:
+            raise NotSettled
         invoice = mapping.typed_from_rows(invoice_row, extractions.get_charges(session, invoice_row.id))
 
         # Matching only needs header fields, so quotes are loaded without their charges (no N+1 queries).
-        candidates = [(row, mapping.typed_from_rows(row)) for row in extractions.list_by_type(session, "quote")]
+        # Only settled quotes are candidates: a quote still waiting for a person must not decide what is overcharged.
+        candidates = [
+            (row, mapping.typed_from_rows(row))
+            for row in extractions.list_by_type(session, "quote", statuses=SETTLED)
+        ]
         match = match_quote(invoice, [typed for _, typed in candidates])
         if match.quote is None:
             return ReconcileOutcome(match.how)

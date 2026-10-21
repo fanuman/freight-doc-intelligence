@@ -1,5 +1,6 @@
 """All database access for extractions and their charges. Only ORM calls, no business rules."""
 import uuid
+from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy import delete, select
@@ -50,11 +51,15 @@ def get_for_document(session: Session, document_id: uuid.UUID) -> Extraction | N
     return session.scalars(select(Extraction).where(Extraction.document_id == document_id)).first()
 
 
-def list_by_type(session: Session, doc_type: str) -> list[Extraction]:
-    """Every extraction of one kind, oldest first. Row-level security limits it to this tenant."""
-    return list(session.scalars(
-        select(Extraction).where(Extraction.doc_type == doc_type).order_by(Extraction.created_at)
-    ))
+def list_by_type(session: Session, doc_type: str, *, statuses: Sequence[str] | None = None) -> list[Extraction]:
+    """Every extraction of one kind, oldest first, optionally only those with one of the given statuses.
+
+    Row-level security limits it to this tenant.
+    """
+    query = select(Extraction).where(Extraction.doc_type == doc_type)
+    if statuses is not None:
+        query = query.where(Extraction.status.in_(statuses))
+    return list(session.scalars(query.order_by(Extraction.created_at)))
 
 
 def get_charges(session: Session, extraction_id: uuid.UUID) -> list[Charge]:
