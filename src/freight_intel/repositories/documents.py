@@ -9,11 +9,14 @@ from freight_intel.models import Document
 
 def create(
     session: Session, *, tenant_id: uuid.UUID, filename: str, storage_key: str,
-    uploaded_by: uuid.UUID | None = None,
+    uploaded_by: uuid.UUID | None = None, document_id: uuid.UUID | None = None,
 ) -> Document:
+    """Add a document row. `document_id` lets the caller pick the id first, because the storage key is built from it."""
     document = Document(
         tenant_id=tenant_id, filename=filename, storage_key=storage_key, uploaded_by=uploaded_by
     )
+    if document_id is not None:
+        document.id = document_id
     session.add(document)
     session.flush()  # INSERT now, so document.id is filled in
     return document
