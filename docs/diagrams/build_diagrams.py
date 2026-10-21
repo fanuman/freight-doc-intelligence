@@ -331,9 +331,58 @@ def test_flow():
     s.save("test-flow.svg")
 
 
+# ---------------------------------------------------------------- 6. upload and review
+def upload_and_review():
+    s = Svg(1280, 650, "From upload to reviewed and reconciled",
+            "An upload is answered with 202 at once. A background job reads the document. A clean document is processed; "
+            "one that cannot be settled pauses, saved in Postgres, until a person approves, corrects or rejects it. "
+            "A settled invoice can then be reconciled with its quote.")
+    header(s, "From upload to reviewed and reconciled",
+           "Five endpoints. The slow work happens after the answer, and a paused review survives a server restart.")
+
+    s.text(30, 104, "1   The request is answered at once", 13, "bold", SOFT)
+    s.node(105, 150, 130, 70, "end", [("Client", "t"), ("logged in", "d")])
+    s.node(330, 150, 200, 74, "code", [("POST /documents", "t"), ("checks type, size, content", "d")])
+    s.node(560, 150, 200, 74, "plain", [("store file + row", "t"), ("status: uploaded", "d")])
+    s.node(790, 150, 200, 74, "end", [("202 Accepted", "t"), ("with the document id", "d")])
+    s.node(1050, 150, 210, 74, "plain", [("GET /documents/{id}", "t"), ("poll until it changes", "d")])
+    s.arrow([(170, 150), (230, 150)])
+    s.arrow([(430, 150), (460, 150)])
+    s.arrow([(660, 150), (690, 150)])
+    s.arrow([(890, 150), (945, 150)])
+
+    s.text(30, 222, "2   The background job (after the 202)", 13, "bold", SOFT)
+    s.node(330, 310, 190, 84, "code", [("claim", "t"), ("uploaded to processing", "d"), ("one worker wins", "d")])
+    s.node(590, 310, 190, 84, "llm", [("run the graph", "t"), ("parse, extract, validate", "d"), ("services/processing.py", "m")])
+    s.node(900, 255, 160, 60, "end", [("processed", "t")])
+    s.node(900, 365, 210, 84, "review", [("paused: needs_review", "t"), ("checkpoint saved", "d"), ("in Postgres", "d")])
+    s.arrow([(560, 187), (560, 235), (330, 235), (330, 268)], dashed=True)
+    s.text(445, 228, "background task", 12, "bold", SOFT, "middle", halo=True)
+    s.arrow([(425, 310), (495, 310)])
+    s.arrow([(685, 310), (740, 310), (740, 255), (820, 255)])
+    s.arrow([(685, 310), (740, 310), (740, 365), (795, 365)])
+    s.text(752, 244, "no errors", 12, "bold", SOFT, "start", halo=True)
+    s.text(732, 386, "errors remain", 12, "bold", SOFT, "end", halo=True)
+
+    s.text(30, 420, "3   A person decides", 13, "bold", SOFT)
+    s.node(900, 495, 250, 84, "review", [("POST .../review", "t"), ("approve, correct or reject", "d"), ("reviewer = the login", "d")])
+    s.node(1170, 495, 170, 84, "code", [("resume the graph", "t"), ("save result + review", "d"), ("in one transaction", "d")])
+    s.arrow([(900, 407), (900, 453)])
+    s.text(912, 436, "GET shows the question", 12, "bold", SOFT, "start", halo=True)
+    s.arrow([(1025, 495), (1085, 495)])
+    s.node(330, 495, 230, 84, "code", [("POST .../reconcile", "t"), ("invoice against its quote", "d"), ("findings, with variances", "d")])
+    s.arrow([(1170, 537), (1170, 590), (330, 590), (330, 537)], dashed=True)
+    s.text(750, 582, "once settled (ok or reviewed)", 12, "bold", SOFT, "middle", halo=True)
+
+    legend(s, 30, 620, [("llm", "reads the document"), ("code", "plain code decides"),
+                        ("review", "a person is involved"), ("end", "result")])
+    s.save("upload-and-review.svg")
+
+
 if __name__ == "__main__":
     pipeline_overview()
     walkthrough()
     state_journey()
     tenant_isolation()
     test_flow()
+    upload_and_review()

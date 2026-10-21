@@ -149,8 +149,11 @@ Every tenant-owned table has `tenant_id` and **row-level security** enforcing it
 - `charges(id, tenant_id, extraction_id, canonical_code, raw_label, amount_minor, currency, basis)`
 - `reconciliations(id, tenant_id, quote_extraction_id, invoice_extraction_id, total_variance_minor, currency, status)`
 - `discrepancies(id, tenant_id, reconciliation_id, type, charge_code, quoted_minor, invoiced_minor, explanation)`
+- `reviews(id, tenant_id, document_id, reviewer_id, action, note, corrected_data, created_at)`: append-only record of every human decision
 
-Status values for documents: `uploaded → processing → needs_review → processed | failed`.
+Status values for documents: `uploaded → processing → processed | needs_review | failed`. A person resolves `needs_review` to
+`processed` (approved or corrected) or `rejected`. Extraction statuses: `ok | needs_review | reviewed`. Only `ok` and `reviewed`
+readings are used when reconciling.
 
 ## 8. Multi-tenancy and auth
 
@@ -166,16 +169,15 @@ Status values for documents: `uploaded → processing → needs_review → proce
 
 ```
 POST /auth/login
-POST /documents            upload file → 202 + document_id
-GET  /documents            list (tenant-scoped)
-GET  /documents/{id}       status + extraction
-POST /documents/{id}/review   submit corrected fields, resume the graph
-POST /reconciliations      {quote_id, invoice_id} or auto-match
-GET  /reconciliations/{id} discrepancies + explanation
+POST /documents                upload file → 202 + document_id (+ Location header)
+GET  /documents                list (tenant-scoped, paged)
+GET  /documents/{id}           status, extraction, reconciliation, review history, open question
+POST /documents/{id}/review    {action: approve|correct|reject, note, extraction?} → resume the graph
+POST /documents/{id}/reconcile compare an invoice with its quote (auto-match); findings appear in GET /documents/{id}
 GET  /healthz
 ```
 
-Processing is asynchronous (background worker); the UI polls status.
+Processing is asynchronous (a FastAPI background task today, a queue later); the UI polls status.
 
 ## 10. Security
 

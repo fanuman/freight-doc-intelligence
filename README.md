@@ -11,8 +11,9 @@ overcharges, missing or unquoted charges, currency mismatches and expired quotes
 > The model never does arithmetic or decides whether a charge is correct.
 
 **Status: work in progress (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
-reconciliation, saved results, a pause-and-resume human review step, an evaluation harness with a CI quality gate and the
-multi-tenant foundation are built and tested. The review screen and cloud deployment are planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
+reconciliation, saved results, a pause-and-resume human review step, a documents API (upload, background processing, review,
+reconcile), an evaluation harness with a CI quality gate and the multi-tenant foundation are built and tested. The review
+screen and cloud deployment are planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
 ## How it works
 
@@ -73,7 +74,25 @@ does not guess and does not dead-end. It **pauses** at a review step, saves its 
 thread per document), and waits. A reviewer then approves, corrects or rejects it, and the graph resumes from where it
 stopped. A correction is checked by the same validation code as the model's reading, approving over an error
 requires a written note, and every decision records who made it. The rules live in plain functions (`pipeline/review.py`) that
-are tested without LangGraph; LangGraph only provides the pause, the checkpoint and the resume. Today the checkpoint lives in memory (tests); connecting the step to the API with a database-backed checkpoint, so a paused review survives a restart, is the next step.
+are tested without LangGraph; LangGraph only provides the pause, the checkpoint and the resume. The checkpoint is stored in Postgres, so a paused review survives a server restart (a test proves a brand-new connection pool resumes it).
+
+### The documents API: upload, review, reconcile
+
+![From upload to reviewed and reconciled: the request is answered at once, a background job reads the document, a person settles the hard cases, and an invoice is reconciled with its quote](docs/images/upload-and-review.svg)
+
+| Endpoint | What it does |
+|---|---|
+| `POST /documents` | Upload a PDF, Excel or e-mail file. Checked by extension **and** content, size-capped. Answers `202` with the id at once; a background task reads it. |
+| `GET /documents` | The company's documents, newest first, with paging. |
+| `GET /documents/{id}` | Status, what was read, the findings, the review history and, while it waits, the question a person must answer. |
+| `POST /documents/{id}/review` | Approve, correct or reject a document that is waiting. The reviewer is always the logged-in user. |
+| `POST /documents/{id}/reconcile` | Compare an invoice with its quote. Only readings that are settled (checks passed, or a person reviewed them) are used. |
+
+Things worth knowing: a client's filename is only ever shown, never used as a path; two workers can never process the same
+document (one atomic `UPDATE ... WHERE status = 'uploaded'` decides who wins); when a review decision is saved, the result and
+the audit row are written in one transaction; and every decision is kept in an append-only `reviews` table. Known limits: the
+background task is lost if the server dies mid-run (the document stays `processing`), and a review that fails three times in a
+row ends unfinished until the document is uploaded again.
 
 ## Multi-tenant foundation
 
@@ -84,7 +103,7 @@ Each company's data is isolated by Postgres **row-level security**, not just by 
 Code is layered so each file has one job: **routes** (`api/routes`, HTTP in and out) call **services** (business rules), which call
 **repositories** (database queries), which use **models** (tables). **Schemas** describe request and response shapes.
 
-API endpoints today: `GET /healthz`, `POST /auth/register`, `POST /auth/login`, `GET /me`.
+API endpoints today: `GET /healthz`, `POST /auth/register`, `POST /auth/login`, `GET /me`, and the five `/documents` endpoints above.
 
 ## How it is tested
 
@@ -143,6 +162,7 @@ docker compose up -d            # Postgres on localhost:5433
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 alembic upgrade head            # creates tables, roles and row-level security
+python -m freight_intel.pipeline.checkpoint   # one-time: creates LangGraph's checkpoint tables (as the owner role)
 
 # 3. run the tests (needs the database running)
 pytest -v
@@ -158,7 +178,8 @@ python -m freight_intel.evaluation --llm openai  # needs OPENAI_API_KEY, about $
 ```
 
 Environment variables (names only; see `.env.example`): `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `APP_DB_USER`,
-`APP_DB_PASSWORD`, `JWT_SECRET`, and for the pipeline `OPENAI_API_KEY`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`.
+`APP_DB_PASSWORD`, `JWT_SECRET`, and for the pipeline `OPENAI_API_KEY` (uploads answer 503 without it), `LANGSMITH_API_KEY`,
+`LANGSMITH_PROJECT`. Optional: `STORAGE_DIR` (default `storage`, a folder; S3 at deploy time) and `MAX_UPLOAD_BYTES` (default 10 MB).
 
 ## Project layout
 
@@ -168,14 +189,15 @@ The pictures above are drawn by `docs/diagrams/build_diagrams.py` (plain Python,
 ```
 src/freight_intel/
   api/          FastAPI app, routes and dependencies
-  services/     business rules (sign-up, login, saving results, reconciling invoices)
+  services/     business rules (sign-up, login, upload checks, processing and review, saving results, reconciling)
   repositories/ database queries
   models/       SQLAlchemy tables
   schemas/      request and response shapes
   pipeline/     parse, classify, extract, validate, normalize, reconcile, repair loop, human review (LangGraph)
   evaluation/   scoring, the evaluation command line and the quality gate
   synth/        synthetic document generator and the oracle test model
-migrations/     Alembic migrations (tables, roles, row-level security, results and reconciliation)
+  storage.py    where uploaded files are kept (a folder today)
+migrations/     Alembic migrations (tables, roles, row-level security, results, reconciliation, reviews)
 tests/          unit, integration and evaluation tests
 docs/           design document, images/ (README pictures), diagrams/ (script that draws them)
 .github/        CI workflows (tests and gate on every push; real-model evaluation by hand)
@@ -195,6 +217,7 @@ eval_thresholds.json   limits the evaluation gate checks
 | Quote-versus-invoice reconciliation | done |
 | Save results (extractions, charges, reconciliations) with tenant isolation | done |
 | Human review (pause and resume) | done |
+| Documents API: upload, background processing, review, reconcile; checkpoints in Postgres | done |
 | CI with an evaluation quality gate | done |
 | Review screen (web UI) and demo | planned |
 | Container deployment (Terraform, ECS) | planned |
