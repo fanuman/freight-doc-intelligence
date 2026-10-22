@@ -1,4 +1,4 @@
-import { formatMoney } from "@/lib/format";
+import { chargeName, formatMoney } from "@/lib/format";
 import type { Extraction } from "@/lib/types";
 import { IssueList } from "./IssueList";
 import { StatusBadge } from "./StatusBadge";
@@ -48,9 +48,9 @@ export function ExtractionView({ extraction }: { extraction: Extraction }) {
           <tbody>
             {extraction.charges.map((charge) => (
               <tr key={charge.position}>
-                <td className="col-pos">{charge.position}</td>
+                <td className="col-pos">{charge.position + 1}</td>
                 <td>{charge.label}</td>
-                <td>{charge.known ? charge.code : <span className="tag tag-warn">not recognised</span>}</td>
+                <td>{charge.known ? chargeName(charge.code) : <span className="tag tag-warn">not recognised</span>}</td>
                 <td className="num">
                   {charge.amount_minor === null ? (
                     <span className="tag tag-bad">unreadable</span>

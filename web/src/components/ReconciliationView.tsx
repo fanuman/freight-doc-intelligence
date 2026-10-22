@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useId, useState } from "react";
-import { formatMoney, formatVariance, sentence } from "@/lib/format";
+import { chargeName, formatMoney, formatVariance, sentence } from "@/lib/format";
 import type { Reconciliation } from "@/lib/types";
 import { CheckIcon, InfoIcon } from "./Icons";
 
@@ -109,7 +109,7 @@ export function ReconciliationView({ reconciliation }: { reconciliation: Reconci
                     <strong className="finding">{sentence(item.type.toLowerCase())}</strong>
                     <div className="muted">{item.explanation ?? item.note}</div>
                   </td>
-                  <td>{item.label ?? item.charge_code ?? "Whole invoice"}</td>
+                  <td>{item.label ?? (item.charge_code ? chargeName(item.charge_code) : "Whole invoice")}</td>
                   <td className="num">{formatMoney(item.quoted_minor, currency)}</td>
                   <td className="num">{formatMoney(item.invoiced_minor, currency)}</td>
                   <td className={`num ${(item.variance_minor ?? 0) > 0 ? "amount-over" : "amount-under"}`}>

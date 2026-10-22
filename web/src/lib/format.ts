@@ -72,6 +72,25 @@ export function sentence(value: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+// The server's canonical charge codes (pipeline/normalize.py), in words a person would use.
+const CHARGE_NAMES: Record<string, string> = {
+  OCEAN_FREIGHT: "Ocean freight",
+  BAF: "Bunker surcharge (BAF)",
+  THC_ORIGIN: "Terminal handling, origin",
+  THC_DEST: "Terminal handling, destination",
+  DOC_FEE: "Documentation fee",
+  ISPS: "Port security (ISPS)",
+  CAF: "Currency adjustment (CAF)",
+  INLAND: "Inland haulage",
+  DETENTION: "Container detention",
+  DEMURRAGE: "Demurrage",
+};
+
+/** "THC_DEST" -> "Terminal handling, destination". A code we have no name for still reads plainly ("NEW_FEE" -> "New fee"). */
+export function chargeName(code: string): string {
+  return CHARGE_NAMES[code] ?? sentence(code.toLowerCase());
+}
+
 /** Statuses where the server is still working, so a page should keep asking for news. */
 const BUSY = new Set(["uploaded", "processing"]);
 
