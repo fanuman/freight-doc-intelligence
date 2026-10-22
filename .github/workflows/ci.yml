@@ -60,3 +60,33 @@ jobs:
       - name: Show the database log if something failed
         if: failure()
         run: docker compose logs db --tail 50
+
+
+  # Checks the web app on every push: dependencies install cleanly, lint passes, types are correct,
+  # and the production build succeeds. No API or database is needed for any of these.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install exactly what package-lock.json says
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
