@@ -12,8 +12,8 @@ overcharges, missing or unquoted charges, currency mismatches and expired quotes
 
 **Status: work in progress (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
 reconciliation, saved results, a pause-and-resume human review step, a documents API (upload, background processing, review,
-reconcile), an evaluation harness with a CI quality gate and the multi-tenant foundation are built and tested. The review
-screen and cloud deployment are planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
+reconcile), an evaluation harness with a CI quality gate and the multi-tenant foundation are built and tested. A web app
+(sign in, upload, review, compare) sits on top of it; cloud deployment is planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
 ## How it works
 
@@ -94,6 +94,40 @@ the audit row are written in one transaction; and every decision is kept in an a
 background task is lost if the server dies mid-run (the document stays `processing`), and a review that fails three times in a
 row ends unfinished until the document is uploaded again.
 
+### The web app
+
+A thin Next.js + TypeScript app in [`web/`](web/) uses that API. Three screens:
+
+- **Sign in / create a company account.**
+- **Documents:** upload a quote or an invoice (PDF, Excel or e-mail), see the list, and watch each status change by itself.
+- **One document:** what was read, the checking code's findings and, when the model could not settle a document, a **review panel**
+  to approve, correct or reject it. For an invoice, a **Compare with the quote** button shows every difference with its amount.
+
+**Sign in** (a company account; every company only sees its own documents):
+
+![The sign-in page](docs/images/01-sign-in.png)
+
+**Documents:** filter by status, search by file name, and watch each status change on its own:
+
+![The document list with status filters](docs/images/02-documents.png)
+
+**Review:** the invoice's printed total is $99 below the sum of its own lines. The checking code finds it and stops; a person
+decides, and the decision is saved with their name:
+
+![The review panel for an invoice whose total does not add up](docs/images/03-review.png)
+
+**Compare with the quote:** every difference with its amount, and a note on how the quote was found (by plain rules in code,
+not by the model):
+
+![An invoice compared with its quote, with the explanation of the match open](docs/images/04-comparison.png)
+
+All screenshots use the synthetic demo data, not real documents.
+
+The browser only talks to `/api/...`; Next.js forwards that to FastAPI, so everything is one origin and the API needs no CORS
+settings. The screens add no business rules: every decision, including a human correction, is checked again by the backend.
+Known limits: the reviewer does not yet see the original file next to the values (no download endpoint), the login token lives in
+`sessionStorage` (a production app would use an httpOnly cookie), and the list polls every 3 seconds instead of receiving pushes.
+
 ## Multi-tenant foundation
 
 Each company's data is isolated by Postgres **row-level security**, not just by application code.
@@ -170,6 +204,9 @@ pytest -v
 # 4. run the API
 uvicorn freight_intel.api.main:app --reload     # docs at http://localhost:8000/docs
 
+# 4b. run the web app (second terminal); needs the API from step 4 running on port 8000
+cd web && npm install && npm run dev            # http://localhost:3000
+
 # 5. generate the synthetic dataset and score the pipeline
 python -m freight_intel.synth                    # writes data/synthetic/ (gitignored)
 python -m freight_intel.evaluation --llm oracle  # free: a pretend perfect model, tests the scoring
@@ -197,6 +234,7 @@ src/freight_intel/
   evaluation/   scoring, the evaluation command line and the quality gate
   synth/        synthetic document generator and the oracle test model
   storage.py    where uploaded files are kept (a folder today)
+web/            Next.js + TypeScript web app (sign in, upload, review, compare)
 migrations/     Alembic migrations (tables, roles, row-level security, results, reconciliation, reviews)
 tests/          unit, integration and evaluation tests
 docs/           design document, images/ (README pictures), diagrams/ (script that draws them)
@@ -219,7 +257,9 @@ eval_thresholds.json   limits the evaluation gate checks
 | Human review (pause and resume) | done |
 | Documents API: upload, background processing, review, reconcile; checkpoints in Postgres | done |
 | CI with an evaluation quality gate | done |
-| Review screen (web UI) and demo | planned |
+| Web app: sign in, upload, review, compare | done |
+| Demo screenshots | done |
+| Demo short video | planned |
 | Container deployment (Terraform, ECS) | planned |
 
 See [`docs/design-doc.md`](docs/design-doc.md) for the full design and the reasoning behind these choices.

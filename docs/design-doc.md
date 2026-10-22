@@ -76,7 +76,7 @@ container types (`20GP`, `40GP`, `40HC`), Incoterms.
 - **Pipeline:** LangGraph with a Postgres checkpointer (needed to pause for human review and resume).
 - **LLM:** OpenAI `gpt-4o-mini` with structured outputs by default; `gpt-4o` for hard/scanned
   documents. Provider calls sit behind one small client so the model can be swapped.
-- **Frontend:** Next.js + TypeScript, a few screens (login, upload, review, results).
+- **Frontend:** Next.js + TypeScript, a few screens (login, upload, review, results). It calls the API through a same-origin `/api` proxy, so the API needs no CORS settings.
 - **Infra:** Docker Compose locally; ECS/Fargate via Terraform, GitHub Actions CI/CD, CloudWatch
   alarms (reusing patterns from `production-rag-agent`).
 
