@@ -13,7 +13,7 @@ document itself is wrong).
 from dataclasses import dataclass, field
 from datetime import date
 
-from freight_intel.pipeline.money import normalize_currency, parse_date, parse_money
+from freight_intel.pipeline.money import format_minor, normalize_currency, parse_date, parse_money
 from freight_intel.pipeline.normalize import normalize_charge, normalize_equipment, normalize_port
 
 ROUNDING_TOLERANCE_MINOR = 1  # lines may differ from the printed total by one cent
@@ -146,8 +146,8 @@ def validate(doc_type: str, extraction) -> ValidationResult:
         if abs(line_sum - total) > ROUNDING_TOLERANCE_MINOR:
             issues.append(Issue(
                 "TOTAL_MISMATCH",
-                f"printed total {total} does not equal the sum of the lines {line_sum} "
-                f"(difference {total - line_sum} minor units): the model may have misread a line, "
+                f"printed total {format_minor(total)} does not equal the sum of the lines {format_minor(line_sum)} "
+                f"(difference {format_minor(total - line_sum)}): the model may have misread a line, "
                 f"or the document itself may be wrong",
                 field="total_text"))
 
