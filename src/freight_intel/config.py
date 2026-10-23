@@ -18,8 +18,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
 
-    # Uploaded documents. A folder for now; S3 at deploy time.
+    # Uploaded documents. "local" = a folder (laptop, tests, Docker Compose); "s3" = a bucket (AWS).
+    storage_backend: str = "local"
     storage_dir: str = "storage"
+    s3_bucket: str | None = None
+    aws_region: str | None = None
     max_upload_bytes: int = 10 * 1024 * 1024  # 10 MB per file
 
     # Optional: only the document pipeline needs these, so the API, migrations
