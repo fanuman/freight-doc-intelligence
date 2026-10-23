@@ -15,5 +15,38 @@ services:
       timeout: 3s
       retries: 10
 
+  # The whole app in containers. The "app" profile keeps it off by default, so the usual workflow
+  # (only the database in Docker; uvicorn and `npm run dev` on your Mac) and CI keep working as before.
+  #   start:  docker compose --profile app up -d --build
+  api:
+    profiles: ["app"]
+    build: .
+    env_file: .env
+    environment:
+      # Inside the compose network the database is called "db" and listens on 5432
+      # (5433 is only the port your Mac sees). These two values override whatever .env says.
+      DB_HOST: db
+      DB_PORT: "5432"
+      STORAGE_DIR: /app/storage
+    ports:
+      - "8000:8000"   # so http://localhost:8000/docs (Swagger) still works
+    volumes:
+      - uploads:/app/storage   # uploaded files outlive the container
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    profiles: ["app"]
+    build:
+      context: ./web
+      args:
+        API_URL: http://api:8000   # baked into the web build: the /api proxy forwards to the api container
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   pgdata:
+  uploads:

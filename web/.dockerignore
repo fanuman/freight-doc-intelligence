@@ -1,0 +1,10 @@
+# Not copied into the web image
+node_modules
+.next
+.env
+.env.*
+*.tsbuildinfo
+Dockerfile
+README.md
+AGENTS.md
+.DS_Store

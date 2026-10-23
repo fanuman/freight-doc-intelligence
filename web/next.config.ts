@@ -8,6 +8,8 @@ const API_URL = process.env.API_URL ?? "http://127.0.0.1:8000";
 const nextConfig: NextConfig = {
   // Hides the round "N" badge that `npm run dev` draws in the corner (it never appears in a production build).
   devIndicators: false,
+  // Makes `next build` also produce a small self-contained server (.next/standalone) for the container image.
+  output: "standalone",
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }];
   },
