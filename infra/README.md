@@ -52,11 +52,11 @@ WEB_REPO=$(terraform output -raw ecr_web_repository)
 
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REGISTRY
 
-docker build --platform linux/arm64 -t $API_REPO:latest ..
-docker build --platform linux/arm64 -t $WEB_REPO:latest ../web
+docker build --platform linux/arm64 -t ${API_REPO}:latest ..
+docker build --platform linux/arm64 -t ${WEB_REPO}:latest ../web
 
-docker push $API_REPO:latest
-docker push $WEB_REPO:latest
+docker push ${API_REPO}:latest
+docker push ${WEB_REPO}:latest
 ```
 
 (Change `us-east-1` if you changed the `region` variable.)
