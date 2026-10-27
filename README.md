@@ -13,7 +13,7 @@ overcharges, missing or unquoted charges, currency mismatches and expired quotes
 **Status: work in progress (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
 reconciliation, saved results, a pause-and-resume human review step, a documents API (upload, background processing, review,
 reconcile), an evaluation harness with a CI quality gate and the multi-tenant foundation are built and tested. A web app
-(sign in, upload, review, compare) sits on top of it; cloud deployment is planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
+(sign in, upload, review, compare) sits on top of it; it has been deployed to AWS with Terraform, tested, and torn down (see [Deploy to AWS](#deploy-to-aws)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
 ## Demo
 
