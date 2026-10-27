@@ -15,12 +15,24 @@ reconciliation, saved results, a pause-and-resume human review step, a documents
 reconcile), an evaluation harness with a CI quality gate and the multi-tenant foundation are built and tested. A web app
 (sign in, upload, review, compare) sits on top of it; cloud deployment is planned (see [Roadmap](#roadmap)). All data is **synthetic** with fictional carriers; no real company documents are used.
 
+## Demo
+
+[![Watch the 3-minute demo](docs/images/demo-poster.png)](docs/demo/freightlens-demo.mp4)
+
+A captioned walkthrough: create a company account, upload a quote and an invoice, review an overcharge, settle an invoice with a wrong total, then see how the LangGraph agent works. All documents are synthetic.
+
 ## How it works
 
 ![The pipeline: parse, classify, extract, validate, with a retry loop](docs/images/pipeline-overview.svg)
 
 **What the pictures show.** Blue steps call an LLM and only copy text. Green steps are plain code that converts, checks and decides.
 The pipeline is a [LangGraph](https://langchain-ai.github.io/langgraph/) state graph, and every run is traced in LangSmith.
+
+### The whole flow in one picture
+
+![The agent flow: parse, classify, route, extract, validate, retry with a hint, human review, done, then a separate compare step](docs/images/agent-flow.png)
+
+Amber steps call the AI model, teal steps are plain code, purple is a person. The model only reads. If the total does not add up, it re-reads with a hint made of facts (never the answer), at most 3 reads in all. If it still fails, the run pauses with its state saved in Postgres until a person approves, corrects or rejects. Comparing an invoice with its quote is a separate step, and it is plain code only.
 
 ### What happens when a document is processed
 
