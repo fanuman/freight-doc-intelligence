@@ -17,7 +17,7 @@ reconcile), an evaluation harness with a CI quality gate and the multi-tenant fo
 
 ## Demo
 
-[![Watch the 3-minute demo](docs/images/demo-poster.png)](docs/demo/freightlens-demo.mp4)
+[![Watch the 3-minute demo](docs/images/demo-poster.png)](https://drive.google.com/file/d/1Ans79KVIUGE9cpHE9ucLtyvN3p2G8r8J/view?usp=drivesdk)
 
 A captioned walkthrough: create a company account, upload a quote and an invoice, review an overcharge, settle an invoice with a wrong total, then see how the LangGraph agent works. All documents are synthetic.
 
@@ -316,10 +316,9 @@ eval_thresholds.json   limits the evaluation gate checks
 | CI with an evaluation quality gate | done |
 | Web app: sign in, upload, review, compare | done |
 | Demo screenshots | done |
-| Demo short video | planned |
+| Demo short video | done |
 | Container images (API and web), Docker Compose full stack | done |
 | S3 storage backend and bootstrap command for an empty database | done |
 | Deployment to AWS with Terraform (ECS Fargate, ALB, RDS, S3), tested and destroyed | done |
-| Alarms, HTTPS, automatic deploy pipeline | planned |
 
 See [`docs/design-doc.md`](docs/design-doc.md) for the full design and the reasoning behind these choices.
