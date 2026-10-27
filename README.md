@@ -10,7 +10,7 @@ overcharges, missing or unquoted charges, currency mismatches and expired quotes
 > Deterministic code converts it to numbers, validates it, and reconciles quote against invoice.
 > The model never does arithmetic or decides whether a charge is correct.
 
-**Status: work in progress (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
+**Status: complete (portfolio project).** The extraction pipeline, normalization, quote-versus-invoice
 reconciliation, saved results, a pause-and-resume human review step, a documents API (upload, background processing, review,
 reconcile), an evaluation harness with a CI quality gate and the multi-tenant foundation are built and tested. A web app
 (sign in, upload, review, compare) sits on top of it; it has been deployed to AWS with Terraform, tested, and torn down (see [Deploy to AWS](#deploy-to-aws)). All data is **synthetic** with fictional carriers; no real company documents are used.
